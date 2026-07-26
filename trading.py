@@ -64,7 +64,9 @@ class AlpacaTrader:
             take_profit={"limit_price": round(decision.take_profit, 2)},
             stop_loss={
                 "stop_price": round(decision.stop_loss, 2),
-                "limit_price": round(decision.stop_loss * (0.995 if side == "buy" else 1.005), 2),
+                "limit_price": round(
+                    decision.stop_loss * (0.995 if side == "buy" else 1.005), 2
+                ),
             },
         )
 
@@ -77,6 +79,8 @@ class AlpacaTrader:
             "take_profit": decision.take_profit,
             "stop_loss": decision.stop_loss,
             "trailing_stop_pct": trailing_percent,
+            "status": order.status,
+            "submitted_at": str(order.submitted_at),
         }
 
     def get_recent_orders(self, limit: int = 25) -> list[dict[str, Any]]:

@@ -6,9 +6,36 @@ import json
 import os
 from typing import Any
 
-from crewai import Agent, Crew, Process, Task
-from crewai.tools import tool
-from langchain_openai import ChatOpenAI
+try:
+    from crewai import Agent, Crew, Process, Task
+    from crewai.tools import tool
+    CREWAI_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    CREWAI_AVAILABLE = False
+
+    class Agent:  # type: ignore[misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    class Crew:  # type: ignore[misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def kickoff(self) -> None:
+            raise RuntimeError("CrewAI is unavailable in this environment")
+
+    class Process:  # type: ignore[misc]
+        sequential = None
+
+    class Task:  # type: ignore[misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    def tool(name: str) -> Any:  # type: ignore[return-value]
+        def decorator(fn: Any) -> Any:
+            return fn
+
+        return decorator
 
 from config import CREWAI_LLM_MODEL, OPENAI_API_KEY
 from market_data import TechnicalSnapshot, analyze_symbol, scan_watchlist
@@ -17,10 +44,10 @@ from sentiment import SentimentSnapshot, analyze_sentiment, scan_sentiment
 from trading import AccountSummary
 
 
-def _build_llm() -> ChatOpenAI:
+def _build_llm() -> dict[str, Any]:
     if not OPENAI_API_KEY:
         os.environ.setdefault("OPENAI_API_KEY", "")
-    return ChatOpenAI(model=CREWAI_LLM_MODEL, temperature=0.2)
+    return {"model": CREWAI_LLM_MODEL, "temperature": 0.2}
 
 
 @tool("scan_technical_indicators")
@@ -55,6 +82,36 @@ def analyze_single_ticker_sentiment(symbol: str) -> str:
     """Scrape news and score sentiment for a single ticker."""
     snapshot = analyze_sentiment(symbol.strip().upper())
     return json.dumps(snapshot.to_dict(), indent=2)
+
+
+@tool("scan_strategy_recommendations")
+def scan_strategy_recommendations(watchlist_csv: str) -> str:
+    """Generate strategy recommendations for a watchlist using technical and sentiment signals."""
+    symbols = [s.strip().upper() for s in watchlist_csv.split(",") if s.strip()]
+    technical_snapshots = scan_watchlist(symbols)
+    recommendations: list[dict[str, Any]] = []
+
+    for technical in technical_snapshots:
+        sentiment = analyze_sentiment(technical.symbol)
+        strategy = "momentum"
+        if technical.signal == "SELL" or sentiment.mood == "BEARISH":
+            strategy = "defensive"
+        elif technical.signal == "HOLD" and sentiment.mood == "BULLISH":
+            strategy = "trend_following"
+
+        recommendations.append(
+            {
+                "symbol": technical.symbol,
+                "technical_signal": technical.signal,
+                "momentum_score": technical.momentum_score,
+                "sentiment_mood": sentiment.mood,
+                "recommended_strategy": strategy,
+                "technical_rationale": technical.rationale,
+                "sentiment_rationale": sentiment.rationale,
+            }
+        )
+
+    return json.dumps(recommendations, indent=2)
 
 
 @tool("evaluate_risk_parameters")
@@ -102,7 +159,10 @@ def evaluate_risk_parameters(
     return json.dumps(decision.to_dict(), indent=2)
 
 
-def build_trading_crew(watchlist: list[str], account: AccountSummary) -> Crew:
+def build_trading_crew(watchlist: list[str], account: AccountSummary) -> Crew | None:
+    if not CREWAI_AVAILABLE:
+        return None
+
     watchlist_csv = ",".join(watchlist)
     llm = _build_llm()
 
@@ -138,6 +198,23 @@ def build_trading_crew(watchlist: list[str], account: AccountSummary) -> Crew:
         tools=[
             scan_market_sentiment,
             analyze_single_ticker_sentiment,
+        ],
+        llm=llm,
+        verbose=True,
+        allow_delegation=False,
+    )
+
+    strategy_selector = Agent(
+        role="Strategy Selector",
+        goal=(
+            "Choose the strongest execution strategy for each candidate based on technical, sentiment, and risk signals."
+        ),
+        backstory=(
+            "You are a senior trader who chooses between breakout, momentum, trend-following, "
+            "and defensive strategies depending on market context."
+        ),
+        tools=[
+            scan_strategy_recommendations,
         ],
         llm=llm,
         verbose=True,
@@ -186,6 +263,20 @@ def build_trading_crew(watchlist: list[str], account: AccountSummary) -> Crew:
         context=[technical_task],
     )
 
+    strategy_task = Task(
+        description=(
+            f"Analyze the watchlist {watchlist_csv} and recommend the best trading approach "
+            "for each top candidate: breakout, momentum, trend-following, or defensive. "
+            "Use technical signals and sentiment alignment to rank strategy choice."
+        ),
+        expected_output=(
+            "JSON strategy recommendation report per ticker with chosen strategy, "
+            "signal alignment, and a concise rationale."
+        ),
+        agent=strategy_selector,
+        context=[technical_task, sentiment_task],
+    )
+
     risk_task = Task(
         description=(
             f"Review technical and sentiment findings for {watchlist_csv}. "
@@ -199,12 +290,12 @@ def build_trading_crew(watchlist: list[str], account: AccountSummary) -> Crew:
             "trailing stop %, and explicit APPROVED/REJECTED verdict per ticker."
         ),
         agent=risk_manager,
-        context=[technical_task, sentiment_task],
+        context=[technical_task, sentiment_task, strategy_task],
     )
 
     return Crew(
-        agents=[technical_scanner, sentiment_analyst, risk_manager],
-        tasks=[technical_task, sentiment_task, risk_task],
+        agents=[technical_scanner, sentiment_analyst, strategy_selector, risk_manager],
+        tasks=[technical_task, sentiment_task, strategy_task, risk_task],
         process=Process.sequential,
         verbose=True,
     )

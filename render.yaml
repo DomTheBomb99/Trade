@@ -5,6 +5,7 @@ services:
     plan: starter
     region: oregon
     branch: main
+    # If your repo has this code in a subfolder, set rootDir in the Render dashboard.
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /_stcore/health

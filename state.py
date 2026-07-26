@@ -36,6 +36,7 @@ class TradingState:
     trade_logs: deque = field(default_factory=lambda: deque(maxlen=MAX_TRADE_LOG_ENTRIES))
     watchlist: list[str] = field(default_factory=list)
     last_scan_summary: str = ""
+    backtest_summary: str = ""
     is_scanning: bool = False
     last_error: str = ""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -87,6 +88,10 @@ class TradingState:
         with self._lock:
             self.last_scan_summary = summary
 
+    def set_backtest_summary(self, summary: str) -> None:
+        with self._lock:
+            self.backtest_summary = summary
+
     def replace_trade_logs(
         self,
         entries: list[tuple[str, str, float, str, str, str]],
@@ -118,6 +123,7 @@ class TradingState:
                 "trade_logs": list(self.trade_logs),
                 "watchlist": list(self.watchlist),
                 "last_scan_summary": self.last_scan_summary,
+                "backtest_summary": self.backtest_summary,
                 "is_scanning": self.is_scanning,
                 "last_error": self.last_error,
             }

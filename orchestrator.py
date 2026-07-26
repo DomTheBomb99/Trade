@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import traceback
 
-from agents import build_trading_crew, extract_crew_output, run_deterministic_pipeline
 from config import DEFAULT_WATCHLIST
 from state import APP_STATE
 from trading import AlpacaTrader, create_trader
+from backtest import run_backtest, summarize_backtest
 
 
 def _log(agent: str, message: str, level: str = "info") -> None:
@@ -16,6 +16,8 @@ def _log(agent: str, message: str, level: str = "info") -> None:
 
 def run_trading_cycle(watchlist: list[str] | None = None) -> str:
     """Execute one full multi-agent scan, deliberation, and optional trade cycle."""
+    from agents import CREWAI_AVAILABLE, build_trading_crew, extract_crew_output, run_deterministic_pipeline
+
     symbols = watchlist or APP_STATE.get_watchlist() or DEFAULT_WATCHLIST
     symbols = [s.strip().upper() for s in symbols if s.strip()]
     APP_STATE.set_watchlist(symbols)
@@ -49,24 +51,34 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
         _log("Web Sentiment Analyst", "Scraping Yahoo Finance + Google News headlines...")
 
         crew = build_trading_crew(symbols, account)
-        _log("Orchestrator", "CrewAI team collaborating on trade decision...")
-
-        try:
-            crew_result = crew.kickoff()
-            crew_summary = extract_crew_output(crew_result)
-            APP_STATE.set_last_scan_summary(crew_summary[:4000])
-            _log("Orchestrator", "Crew deliberation complete. Parsing risk-approved setups...")
-            _log("Risk Manager", crew_summary[:500] + ("..." if len(crew_summary) > 500 else ""))
-        except Exception as crew_error:
+        if crew is not None and CREWAI_AVAILABLE:
+            _log("Orchestrator", "CrewAI team collaborating on trade decision...")
+            try:
+                crew_result = crew.kickoff()
+                crew_summary = extract_crew_output(crew_result)
+                APP_STATE.set_last_scan_summary(crew_summary[:4000])
+                _log("Orchestrator", "Crew deliberation complete. Parsing risk-approved setups...")
+                _log("Risk Manager", crew_summary[:500] + ("..." if len(crew_summary) > 500 else ""))
+            except Exception as crew_error:
+                _log(
+                    "Orchestrator",
+                    f"CrewAI deliberation failed ({crew_error}). Falling back to deterministic pipeline.",
+                    "warning",
+                )
+                APP_STATE.set_last_scan_summary(f"Crew fallback: {crew_error}")
+        else:
             _log(
                 "Orchestrator",
-                f"CrewAI deliberation failed ({crew_error}). Falling back to deterministic pipeline.",
+                "CrewAI is unavailable. Using deterministic strategy pipeline only.",
                 "warning",
             )
-            APP_STATE.set_last_scan_summary(f"Crew fallback: {crew_error}")
+            APP_STATE.set_last_scan_summary("CrewAI unavailable; deterministic pipeline only.")
 
         open_positions = trader.get_open_position_symbols()
         approved_decisions = run_deterministic_pipeline(symbols, account, open_positions)
+
+        backtest_results = run_backtest(symbols)
+        APP_STATE.set_backtest_summary(summarize_backtest(backtest_results))
 
         if not approved_decisions:
             _log("Risk Manager", "No trades approved. Capital preserved.", "warning")
@@ -101,7 +113,7 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
                     symbol=decision.symbol,
                     side=decision.side,
                     qty=decision.qty,
-                    status="submitted",
+                    status=result.get("status", "submitted"),
                     order_id=result["entry_order_id"],
                     details=(
                         f"Bracket TP ${result['take_profit']:.2f}, SL ${result['stop_loss']:.2f}, "
