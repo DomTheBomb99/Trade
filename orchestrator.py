@@ -77,11 +77,13 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
 
         open_positions = trader.get_open_position_symbols()
         approved_decisions = run_deterministic_pipeline(symbols, account, open_positions)
+        APP_STATE.set_decision_summaries(approved_decisions)
 
         backtest_results = run_backtest(symbols)
         APP_STATE.set_backtest_summary(summarize_backtest(backtest_results))
 
         if not approved_decisions:
+            APP_STATE.set_decision_summaries([])
             _log("Risk Manager", "No trades approved. Capital preserved.", "warning")
             summary = "Scan complete. No risk-approved trades."
             APP_STATE.set_last_scan_summary(summary)

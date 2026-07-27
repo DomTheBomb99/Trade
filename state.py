@@ -31,12 +31,39 @@ class TradeLogEntry:
 
 
 @dataclass
+class DecisionSummaryEntry:
+    symbol: str
+    side: str
+    qty: int
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    trailing_stop_pct: float
+    risk_reward_ratio: float
+    rationale: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "side": self.side,
+            "qty": self.qty,
+            "entry_price": round(self.entry_price, 2),
+            "stop_loss": round(self.stop_loss, 2),
+            "take_profit": round(self.take_profit, 2),
+            "trailing_stop_pct": round(self.trailing_stop_pct, 4),
+            "risk_reward_ratio": round(self.risk_reward_ratio, 2),
+            "rationale": self.rationale,
+        }
+
+
+@dataclass
 class TradingState:
     agent_logs: deque = field(default_factory=lambda: deque(maxlen=MAX_AGENT_LOG_ENTRIES))
     trade_logs: deque = field(default_factory=lambda: deque(maxlen=MAX_TRADE_LOG_ENTRIES))
     watchlist: list[str] = field(default_factory=list)
     last_scan_summary: str = ""
     backtest_summary: str = ""
+    decision_summaries: list[DecisionSummaryEntry] = field(default_factory=list)
     is_scanning: bool = False
     last_error: str = ""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -92,6 +119,10 @@ class TradingState:
         with self._lock:
             self.backtest_summary = summary
 
+    def set_decision_summaries(self, decisions: list[DecisionSummaryEntry]) -> None:
+        with self._lock:
+            self.decision_summaries = decisions
+
     def replace_trade_logs(
         self,
         entries: list[tuple[str, str, float, str, str, str]],
@@ -124,6 +155,7 @@ class TradingState:
                 "watchlist": list(self.watchlist),
                 "last_scan_summary": self.last_scan_summary,
                 "backtest_summary": self.backtest_summary,
+                "decision_summaries": [entry.to_dict() for entry in self.decision_summaries],
                 "is_scanning": self.is_scanning,
                 "last_error": self.last_error,
             }

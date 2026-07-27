@@ -128,6 +128,43 @@ def _render_trade_logs(logs: list) -> None:
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
+def _render_decision_cards(decisions: list[dict[str, Any]]) -> None:
+    if not decisions:
+        st.info("No approved trade decisions yet. Run a scan to surface candidate trades.")
+        return
+
+    cols = st.columns(min(3, max(1, len(decisions))))
+    for idx, decision in enumerate(decisions):
+        with cols[idx]:
+            st.markdown(
+                f"""
+                <div style="
+                    border-radius: 18px;
+                    padding: 18px;
+                    margin-bottom: 16px;
+                    background: #ffffff;
+                    border: 1px solid rgba(148, 163, 184, 0.2);
+                    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+                ">
+                    <strong style="font-size: 1rem;">{decision['symbol']} · {decision['side'].upper()}</strong>
+                    <div style="color:#475569; font-size:0.92rem; margin:8px 0;">
+                        Qty: {decision['qty']} · Entry ${decision['entry_price']:.2f}
+                    </div>
+                    <div style="color:#475569; font-size:0.92rem;">
+                        TP ${decision['take_profit']:.2f} · SL ${decision['stop_loss']:.2f}
+                    </div>
+                    <div style="color:#475569; font-size:0.92rem; margin-top:0.6rem;">
+                        R:R {decision['risk_reward_ratio']:.2f} · Trailing {decision['trailing_stop_pct']*100:.2f}%
+                    </div>
+                    <div style="color:#0f172a; font-size:0.9rem; margin-top:0.85rem;">
+                        {decision['rationale']}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
 def _inject_styles() -> None:
     st.markdown(
         """
@@ -308,6 +345,11 @@ def main() -> None:
     with trade_col:
         st.subheader("Recent Paper Trades")
         _render_trade_logs(snapshot["trade_logs"])
+
+    decision_section = st.container()
+    with decision_section:
+        st.subheader("Latest Approved Trade Decisions")
+        _render_decision_cards(snapshot["decision_summaries"])
 
     st.caption(
         f"Last UI refresh: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
