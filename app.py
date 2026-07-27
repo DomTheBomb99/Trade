@@ -29,6 +29,34 @@ AGENT_COLORS = {
     "Orchestrator": "#059669",
 }
 
+AGENT_PERSONAS = {
+    "Technical Market Scanner": {
+        "name": "Astra",
+        "icon": "🛰️",
+        "tagline": "Live chart tracking and momentum scouting.",
+    },
+    "Web Sentiment Analyst": {
+        "name": "Nova",
+        "icon": "🧠",
+        "tagline": "Reading market mood and news signals.",
+    },
+    "Strategy Selector": {
+        "name": "Helix",
+        "icon": "🧭",
+        "tagline": "Selecting the best approach for the moment.",
+    },
+    "Risk Manager": {
+        "name": "Guardian",
+        "icon": "🛡️",
+        "tagline": "Protecting cash and enforcing risk rules.",
+    },
+    "Orchestrator": {
+        "name": "Pulse",
+        "icon": "⚡",
+        "tagline": "Coordinating the live workflow.",
+    },
+}
+
 LEVEL_ICONS = {
     "info": "ℹ️",
     "warning": "⚠️",
@@ -88,23 +116,93 @@ def _render_agent_logs(logs: list) -> None:
     for entry in logs[:80]:
         color = AGENT_COLORS.get(entry.agent, "#64748b")
         icon = LEVEL_ICONS.get(entry.level, "ℹ️")
+        persona = AGENT_PERSONAS.get(entry.agent, {})
+        name = persona.get("name", entry.agent)
         ts = entry.timestamp.replace("T", " ").split("+")[0]
         st.markdown(
             f"""
             <div style="
-                border-left: 4px solid {color};
-                padding: 0.55rem 0.85rem;
-                margin-bottom: 0.45rem;
-                background: #f8fafc;
-                border-radius: 0 6px 6px 0;
+                border-radius: 16px;
+                padding: 16px;
+                margin-bottom: 12px;
+                background: rgba(15, 23, 42, 0.75);
+                border: 1px solid rgba(96, 165, 250, 0.25);
+                backdrop-filter: blur(18px);
+                box-shadow: 0 16px 40px rgba(15, 23, 42, 0.35);
+                color: #f8fafc;
             ">
-                <small style="color:#64748b;">{ts} UTC</small><br/>
-                <strong style="color:{color};">{icon} {entry.agent}</strong><br/>
-                <span>{entry.message}</span>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
+                    <div>
+                        <strong style="color:{color}; font-size:1rem;">{icon} {name}</strong>
+                        <div style="color:#cbd5e1; font-size:0.88rem;">{entry.agent}</div>
+                    </div>
+                    <span style="color:#94a3b8; font-size:0.82rem;">{ts} UTC</span>
+                </div>
+                <div style="margin-top:0.75rem; color:#e2e8f0;">{entry.message}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+
+def _summarize_agent_status(logs: list) -> list[dict[str, str]]:
+    status: dict[str, dict[str, str]] = {}
+    for entry in logs:
+        if entry.agent not in status or entry.timestamp > status[entry.agent]["timestamp"]:
+            status[entry.agent] = {
+                "agent": entry.agent,
+                "message": entry.message,
+                "timestamp": entry.timestamp.replace("T", " ").split("+")[0],
+                "level": entry.level,
+            }
+    return [
+        {
+            "agent": agent,
+            "name": AGENT_PERSONAS.get(agent, {}).get("name", agent),
+            "icon": AGENT_PERSONAS.get(agent, {}).get("icon", "🤖"),
+            "tagline": AGENT_PERSONAS.get(agent, {}).get("tagline", ""),
+            "message": details["message"],
+            "timestamp": details["timestamp"],
+            "level": details["level"],
+        }
+        for agent, details in status.items()
+    ]
+
+
+def _render_agent_status_cards(status_list: list[dict[str, str]]) -> None:
+    if not status_list:
+        st.info("Agent status will appear here after the first scan.")
+        return
+
+    cols = st.columns(len(status_list))
+    for idx, status in enumerate(status_list):
+        with cols[idx]:
+            color = AGENT_COLORS.get(status["agent"], "#64748b")
+            st.markdown(
+                f"""
+                <div style="
+                    border-radius: 24px;
+                    padding: 22px;
+                    margin-bottom: 12px;
+                    background: rgba(15, 23, 42, 0.82);
+                    border: 1px solid rgba(148, 163, 184, 0.18);
+                    backdrop-filter: blur(18px);
+                    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.32);
+                ">
+                    <div style="display:flex; align-items:center; gap:0.8rem; margin-bottom:8px;">
+                        <span style="font-size:1.4rem;">{status['icon']}</span>
+                        <div>
+                            <strong style="color:{color}; font-size:1rem;">{status['name']}</strong>
+                            <div style="color:#94a3b8; font-size:0.86rem;">{status['agent']}</div>
+                        </div>
+                    </div>
+                    <div style="color:#cbd5e1; font-size:0.9rem; margin-bottom:10px;">{status['tagline']}</div>
+                    <div style="color:#e2e8f0; font-size:0.92rem;">{status['message']}</div>
+                    <div style="color:#94a3b8; font-size:0.78rem; margin-top:12px;">Last update: {status['timestamp']} UTC</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 def _render_trade_logs(logs: list) -> None:
@@ -169,26 +267,54 @@ def _inject_styles() -> None:
     st.markdown(
         """
         <style>
-        .agent-card {
-            border-radius: 16px;
-            padding: 16px;
-            margin-bottom: 12px;
-            background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-            border: 1px solid rgba(148, 163, 184, 0.16);
+        body {
+            background: linear-gradient(135deg, #01050f 0%, #09111e 45%, #121c34 100%);
+            color: #e2e8f0;
         }
-        .agent-card strong {
-            color: #0f172a;
-            font-size: 1rem;
+        .glass-card {
+            border-radius: 24px;
+            padding: 22px;
+            margin-bottom: 16px;
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 22px 60px rgba(15, 23, 42, 0.32);
         }
-        .agent-card .agent-meta {
-            color: #475569;
-            font-size: 0.92rem;
-            margin-top: 8px;
+        .hero-banner {
+            border-radius: 28px;
+            padding: 26px;
+            margin-bottom: 26px;
+            background: rgba(22, 28, 45, 0.85);
+            border: 1px solid rgba(96, 165, 250, 0.15);
+            backdrop-filter: blur(24px);
+            box-shadow: 0 26px 70px rgba(15, 23, 42, 0.32);
         }
-        .agent-status-header {
-            font-weight: 700;
-            margin-bottom: 12px;
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.16);
+            color: #c7d2fe;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .bot-pulse {
+            animation: pulse-border 3s ease-in-out infinite;
+        }
+        @keyframes pulse-border {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.25); }
+            50% { box-shadow: 0 0 0 18px rgba(56, 189, 248, 0.02); }
+        }
+        .streamlit-expanderHeader {
+            color: #dbeafe !important;
+        }
+        .css-1lsmgbg {
+            background: transparent !important;
+        }
+        .stButton>button {
+            border-radius: 999px;
         }
         </style>
         """,
@@ -235,8 +361,31 @@ def _summarize_trade_performance(logs: list) -> dict[str, int]:
 def main() -> None:
     _init_session()
 
-    st.title("Multi-Agent Paper Trading System")
-    st.caption("CrewAI expert team · Alpaca Paper Trading · yfinance + news sentiment")
+    st.markdown(
+        """
+        <div class='hero-banner'>
+            <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;'>
+                <div>
+                    <h1 style='margin:0; font-size:2.6rem;'>Multi-Agent Paper Trading Hub</h1>
+                    <p style='margin:12px 0 0; color:#cbd5e1; font-size:1rem;'>
+                        Live market scanning, sentiment reading, strategy selection, and risk enforcement — all in a single glossy control center.
+                    </p>
+                </div>
+                <div style='display:flex; gap:1rem; flex-wrap:wrap;'>
+                    <div class='glass-card' style='min-width:170px;'>
+                        <div style='color:#60a5fa; font-size:0.8rem; letter-spacing:0.08em;'>WATCHLIST</div>
+                        <div style='font-size:1.6rem; font-weight:700;'>{len(st.session_state.watchlist_text.split(","))}</div>
+                    </div>
+                    <div class='glass-card' style='min-width:170px;'>
+                        <div style='color:#7dd3fc; font-size:0.8rem; letter-spacing:0.08em;'>ENGINE</div>
+                        <div style='font-size:1.6rem; font-weight:700;'>{"Live" if st.session_state.auto_scan else "Idle"}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     with st.sidebar:
         st.header("Watchlist")
