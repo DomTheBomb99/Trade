@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-import streamlit as st
+import streamlit as st  # type: ignore
 
 from config import DEFAULT_WATCHLIST, SCAN_INTERVAL_SECONDS
 from orchestrator import run_trading_cycle, sync_alpaca_trade_log
@@ -222,7 +222,7 @@ def main() -> None:
                 sync_alpaca_trade_log()
             st.success("Scan complete.")
 
-        auto_scan = st.toggle("Auto-scan every 5 minutes", value=st.session_state.auto_scan)
+        auto_scan = st.checkbox("Auto-scan every 5 minutes", value=st.session_state.auto_scan)
         if auto_scan and not st.session_state.auto_scan:
             st.session_state.auto_scan = True
             _start_auto_scan(watchlist)
@@ -301,7 +301,7 @@ def main() -> None:
 
     with log_col:
         st.subheader("Live Agent Log")
-        log_container = st.container(height=520)
+        log_container = st.container()
         with log_container:
             _render_agent_logs(snapshot["agent_logs"])
 
