@@ -36,9 +36,11 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
 
     try:
         account = trader.get_account()
+        APP_STATE.add_equity_point(account.equity)
+        equity_trend = APP_STATE.get_equity_trend()
         _log(
             "Orchestrator",
-            f"Paper account equity ${account.equity:,.2f} | buying power ${account.buying_power:,.2f}",
+            f"Paper account equity ${account.equity:,.2f} | buying power ${account.buying_power:,.2f} | equity trend {equity_trend*100:.2f}%",
         )
 
         market_open = trader.is_market_open()
@@ -119,6 +121,21 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
         win_rate = average_backtest_win_rate(backtest_results)
         APP_STATE.set_win_rate(win_rate)
         APP_STATE.set_backtest_summary(summarize_backtest(backtest_results))
+
+        equity_trend = APP_STATE.get_equity_trend()
+        if win_rate >= 0.55 and equity_trend > 0.01:
+            bias = {"Momentum": 1.2, "Trend-Following": 1.1, "Defensive": 0.8}
+            bias_reason = "Strong performance; biasing toward growth-oriented strategies."
+        elif win_rate < 0.45 or equity_trend < -0.02:
+            bias = {"Momentum": 0.8, "Trend-Following": 0.9, "Defensive": 1.3}
+            bias_reason = "Weak recent performance; biasing toward defensive risk control."
+        else:
+            bias = {"Momentum": 1.0, "Trend-Following": 1.0, "Defensive": 1.0}
+            bias_reason = "Balanced performance; no strong strategy bias."
+        APP_STATE.set_strategy_bias(bias)
+        APP_STATE.set_strategy_reason(
+            f"{bias_reason} Equity trend {equity_trend*100:.1f}%, backtest win rate {win_rate*100:.1f}%."
+        )
 
         if not approved_decisions:
             APP_STATE.set_decision_summaries([])

@@ -349,6 +349,11 @@ def _rank_strategies(decisions: list[RiskDecision]) -> dict[str, float]:
     }
 
 
+def _strategy_weight(strategy: str) -> float:
+    weight = APP_STATE.strategy_bias.get(strategy, 1.0)
+    return float(weight if weight > 0 else 1.0)
+
+
 def run_deterministic_pipeline(
     watchlist: list[str],
     account: AccountSummary,
@@ -362,7 +367,7 @@ def run_deterministic_pipeline(
     technicals = scan_watchlist(broad_watchlist)
     sentiments = {s.symbol: s for s in scan_sentiment(broad_watchlist)}
 
-    candidates: list[RiskDecision] = []
+    weighted_candidates: list[RiskDecision] = []
     for technical in sorted(technicals, key=lambda t: t.momentum_score, reverse=True):
         if technical.symbol in open_positions:
             continue
@@ -372,12 +377,16 @@ def run_deterministic_pipeline(
         decision = evaluate_trade(technical, sentiment, account.equity, account.buying_power)
         if decision.approved:
             decision.strategy = _assign_strategy(technical, sentiment)
-            candidates.append(decision)
-            if len(candidates) >= MAX_STRATEGY_WATCHLIST:
-                break
+            weighted_candidates.append(decision)
 
-    if not candidates:
+    if not weighted_candidates:
         return []
+
+    weighted_candidates.sort(
+        key=lambda d: (d.risk_reward_ratio * _strategy_weight(d.strategy)),
+        reverse=True,
+    )
+    candidates = weighted_candidates[:MAX_STRATEGY_WATCHLIST]
 
     strategy_rankings = _rank_strategies(candidates)
     best_strategy = max(strategy_rankings, key=strategy_rankings.get)

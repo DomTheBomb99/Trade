@@ -547,18 +547,20 @@ def main() -> None:
         trade_summary = _summarize_trade_performance(snapshot["trade_logs"])
         st.metric("Paper Trades", trade_summary["total"])
 
-    mode_col, strategy_col, winrate_col, error_col = st.columns(4)
+    equity_history = snapshot.get("equity_history", [])
+    equity_trend = 0.0
+    if len(equity_history) >= 2:
+        equity_trend = (equity_history[-1] - equity_history[0]) / max(equity_history[0], 1)
+
+    mode_col, strategy_col, winrate_col, trend_col = st.columns(4)
     with mode_col:
         st.metric("Decision Mode", snapshot.get("active_mode", "deterministic").title())
     with strategy_col:
         st.metric("Active Strategy", snapshot.get("active_strategy", "momentum"))
     with winrate_col:
         st.metric("Backtest Win Rate", f"{snapshot.get('win_rate', 0.0) * 100:.1f}%")
-    with error_col:
-        if snapshot["last_error"]:
-            st.error(snapshot["last_error"])
-        else:
-            st.success("No current errors")
+    with trend_col:
+        st.metric("Equity Trend", f"{equity_trend * 100:.2f}%")
 
     market_col, portfolio_col = st.columns(2)
     with market_col:
@@ -572,8 +574,13 @@ def main() -> None:
     with st.expander("Strategy Selection Notes", expanded=True):
         st.write(snapshot.get("strategy_reason", "Strategy selection will show after a completed scan."))
         if snapshot.get("strategy_rankings"):
+            st.write("**Strategy mix:**")
             for strategy, pct in snapshot["strategy_rankings"].items():
                 st.write(f"- {strategy}: {pct:.0%}")
+        if snapshot.get("strategy_bias"):
+            st.write("**Adaptive strategy bias:**")
+            for strategy, weight in snapshot["strategy_bias"].items():
+                st.write(f"- {strategy}: x{weight:.2f}")
 
     with st.expander("Backtest Summary", expanded=False):
         if snapshot["backtest_summary"]:

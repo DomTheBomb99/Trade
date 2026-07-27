@@ -84,6 +84,8 @@ class TradingState:
     strategy_reason: str = ""
     win_rate: float = 0.0
     strategy_rankings: dict[str, float] = field(default_factory=dict)
+    strategy_bias: dict[str, float] = field(default_factory=dict)
+    equity_history: list[float] = field(default_factory=list)
     last_scan_summary: str = ""
     backtest_summary: str = ""
     decision_summaries: list[DecisionSummaryEntry] = field(default_factory=list)
@@ -162,6 +164,22 @@ class TradingState:
         with self._lock:
             self.strategy_rankings = rankings
 
+    def set_strategy_bias(self, bias: dict[str, float]) -> None:
+        with self._lock:
+            self.strategy_bias = bias
+
+    def add_equity_point(self, equity: float) -> None:
+        with self._lock:
+            history = list(self.equity_history)
+            history.append(equity)
+            self.equity_history = history[-10:]
+
+    def get_equity_trend(self) -> float:
+        with self._lock:
+            if len(self.equity_history) < 2:
+                return 0.0
+            return (self.equity_history[-1] - self.equity_history[0]) / max(self.equity_history[0], 1)
+
     def set_decision_summaries(self, decisions: list[DecisionSummaryEntry] | list[RiskDecision]) -> None:
         with self._lock:
             if decisions and isinstance(decisions[0], RiskDecision):
@@ -204,6 +222,8 @@ class TradingState:
                 "strategy_reason": self.strategy_reason,
                 "win_rate": self.win_rate,
                 "strategy_rankings": dict(self.strategy_rankings),
+                "strategy_bias": dict(self.strategy_bias),
+                "equity_history": list(self.equity_history),
                 "last_scan_summary": self.last_scan_summary,
                 "backtest_summary": self.backtest_summary,
                 "decision_summaries": [entry.to_dict() for entry in self.decision_summaries],
