@@ -37,7 +37,7 @@ except ImportError:  # pragma: no cover
 
         return decorator
 
-from config import CREWAI_LLM_MODEL, OPENAI_API_KEY
+from config import CREWAI_LLM_MODEL, CREWAI_LLM_TYPE, OPENAI_API_KEY
 from market_data import TechnicalSnapshot, analyze_symbol, scan_watchlist
 from risk_manager import RiskDecision, evaluate_trade
 from sentiment import SentimentSnapshot, analyze_sentiment, scan_sentiment
@@ -45,9 +45,15 @@ from trading import AccountSummary
 
 
 def _build_llm() -> dict[str, Any]:
-    if not OPENAI_API_KEY:
+    if OPENAI_API_KEY:
+        os.environ.setdefault("OPENAI_API_KEY", OPENAI_API_KEY)
+    else:
         os.environ.setdefault("OPENAI_API_KEY", "")
-    return {"model": CREWAI_LLM_MODEL, "temperature": 0.2}
+    return {
+        "llm_type": CREWAI_LLM_TYPE,
+        "model": CREWAI_LLM_MODEL,
+        "temperature": 0.2,
+    }
 
 
 @tool("scan_technical_indicators")

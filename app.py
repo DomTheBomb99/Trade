@@ -361,32 +361,6 @@ def _summarize_trade_performance(logs: list) -> dict[str, int]:
 def main() -> None:
     _init_session()
 
-    st.markdown(
-        """
-        <div class='hero-banner'>
-            <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;'>
-                <div>
-                    <h1 style='margin:0; font-size:2.6rem;'>Multi-Agent Paper Trading Hub</h1>
-                    <p style='margin:12px 0 0; color:#cbd5e1; font-size:1rem;'>
-                        Live market scanning, sentiment reading, strategy selection, and risk enforcement — all in a single glossy control center.
-                    </p>
-                </div>
-                <div style='display:flex; gap:1rem; flex-wrap:wrap;'>
-                    <div class='glass-card' style='min-width:170px;'>
-                        <div style='color:#60a5fa; font-size:0.8rem; letter-spacing:0.08em;'>WATCHLIST</div>
-                        <div style='font-size:1.6rem; font-weight:700;'>{len(st.session_state.watchlist_text.split(","))}</div>
-                    </div>
-                    <div class='glass-card' style='min-width:170px;'>
-                        <div style='color:#7dd3fc; font-size:0.8rem; letter-spacing:0.08em;'>ENGINE</div>
-                        <div style='font-size:1.6rem; font-weight:700;'>{"Live" if st.session_state.auto_scan else "Idle"}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     with st.sidebar:
         st.header("Watchlist")
         watchlist_text = st.text_area(
@@ -441,7 +415,94 @@ def main() -> None:
         else:
             st.warning("Set ALPACA_API_KEY and ALPACA_SECRET_KEY in Render env vars.")
 
+    _inject_styles()
     snapshot = APP_STATE.snapshot()
+
+    st.markdown(
+        f"""
+        <div class='hero-banner'>
+            <div style='display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;'>
+                <div>
+                    <h1 style='margin:0; font-size:2.6rem;'>Multi-Agent Paper Trading Hub</h1>
+                    <p style='margin:12px 0 0; color:#cbd5e1; font-size:1rem;'>
+                        Live market scanning, sentiment reading, strategy selection, and risk enforcement — all in a single glossy control center.
+                    </p>
+                </div>
+                <div style='display:flex; gap:1rem; flex-wrap:wrap;'>
+                    <div class='glass-card' style='min-width:170px;'>
+                        <div style='color:#60a5fa; font-size:0.8rem; letter-spacing:0.08em;'>WATCHLIST</div>
+                        <div style='font-size:1.6rem; font-weight:700;'>{len(watchlist)}</div>
+                    </div>
+                    <div class='glass-card' style='min-width:170px;'>
+                        <div style='color:#7dd3fc; font-size:0.8rem; letter-spacing:0.08em;'>ENGINE</div>
+                        <div style='font-size:1.6rem; font-weight:700;'>{'Live' if st.session_state.auto_scan else 'Idle'}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    overview_tab, agents_tab, trades_tab, decisions_tab = st.tabs([
+        "Overview",
+        "Agents",
+        "Trades",
+        "Decisions",
+    ])
+
+    status_col1, status_col2, status_col3, status_col4 = st.columns(4)
+    with status_col1:
+        st.metric("Watchlist Size", len(watchlist))
+    with status_col2:
+        scanning = "Scanning..." if snapshot["is_scanning"] else "Idle"
+        st.metric("Engine Status", scanning)
+    with status_col3:
+        st.metric("Agent Log Entries", len(snapshot["agent_logs"]))
+    with status_col4:
+        trade_summary = _summarize_trade_performance(snapshot["trade_logs"])
+        st.metric("Paper Trades", trade_summary["total"])
+
+    if snapshot["last_error"]:
+        st.error(snapshot["last_error"])
+
+    with overview_tab:
+        st.markdown("## System Pulse")
+        if snapshot["last_scan_summary"]:
+            st.info(snapshot["last_scan_summary"])
+        if snapshot["backtest_summary"]:
+            st.success(snapshot["backtest_summary"])
+
+        st.markdown("## Live Market Radar")
+        _render_agent_status_cards(_summarize_agent_status(snapshot["agent_logs"]))
+
+    with agents_tab:
+        st.markdown("## Agent Command Deck")
+        _render_agent_status_cards(_summarize_agent_status(snapshot["agent_logs"]))
+        st.markdown("## Live Agent Log")
+        _render_agent_logs(snapshot["agent_logs"])
+
+    with trades_tab:
+        st.markdown("## Recent Paper Trades")
+        _render_trade_logs(snapshot["trade_logs"])
+        if snapshot["backtest_summary"]:
+            with st.expander("Recent Backtest Summary", expanded=False):
+                st.text(snapshot["backtest_summary"])
+
+    with decisions_tab:
+        st.markdown("## Latest Approved Trade Decisions")
+        _render_decision_cards(snapshot["decision_summaries"])
+        if snapshot["last_scan_summary"]:
+            with st.expander("Latest Scan Notes", expanded=False):
+                st.text(snapshot["last_scan_summary"])
+
+    st.caption(
+        f"Last UI refresh: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
+    )
+
+    if st.session_state.auto_scan:
+        time.sleep(2)
+        st.rerun()
 
     status_col1, status_col2, status_col3, status_col4 = st.columns(4)
     with status_col1:
@@ -467,14 +528,20 @@ def main() -> None:
             st.text(snapshot["backtest_summary"])
 
     _inject_styles()
+    agent_status_list = _summarize_agent_status(snapshot["agent_logs"])
     agent_activity = _summarize_agent_activity(snapshot["agent_logs"])
+
     with st.container():
-        st.markdown("## Current Agent Activity")
+        st.markdown("## Current Agent Status")
+        _render_agent_status_cards(agent_status_list)
+
+    with st.container():
+        st.markdown("## Agent Activity Snapshot")
         for agent_name, agent_data in agent_activity.items():
             color = AGENT_COLORS.get(agent_name, "#475569")
             st.markdown(
                 f"""
-                <div class='agent-card'>
+                <div class='agent-card bot-pulse'>
                     <strong style='color:{color};'>{agent_data['agent']}</strong>
                     <div class='agent-meta'>Last updated: {agent_data['last_time']} · Messages: {agent_data['count']} · Level: {agent_data['level']}</div>
                     <div style='margin-top:8px;'>{agent_data['last_message']}</div>

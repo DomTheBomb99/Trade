@@ -18,6 +18,7 @@ ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
 # LLM for CrewAI agent reasoning
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 CREWAI_LLM_MODEL = os.environ.get("CREWAI_LLM_MODEL", "gpt-4o-mini")
+CREWAI_LLM_TYPE = os.environ.get("CREWAI_LLM_TYPE", "openai")
 
 # Risk parameters (enforced programmatically, not only by LLM)
 MAX_RISK_PER_TRADE = 0.02  # 2% of equity
