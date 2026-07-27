@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import streamlit as st  # type: ignore
+import yfinance as yf  # type: ignore
 
 from config import DEFAULT_WATCHLIST, SCAN_INTERVAL_SECONDS
 from orchestrator import run_trading_cycle, sync_alpaca_trade_log
@@ -174,7 +175,7 @@ def _render_agent_status_cards(status_list: list[dict[str, str]]) -> None:
         st.info("Agent status will appear here after the first scan.")
         return
 
-    cols = st.columns(len(status_list))
+    cols = st.columns(max(1, len(status_list)))
     for idx, status in enumerate(status_list):
         with cols[idx]:
             color = AGENT_COLORS.get(status["agent"], "#64748b")
@@ -203,6 +204,91 @@ def _render_agent_status_cards(status_list: list[dict[str, str]]) -> None:
                 """,
                 unsafe_allow_html=True,
             )
+
+
+@st.cache_data(ttl=45)
+def _fetch_watchlist_prices(symbols: list[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for symbol in symbols[:10]:
+        symbol = symbol.strip().upper()
+        if not symbol:
+            continue
+        try:
+            ticker = yf.Ticker(symbol)
+            history = ticker.history(period="1d", interval="1m", actions=False)
+            if history.empty:
+                raise ValueError("No price data")
+            latest = history["Close"].iloc[-1]
+            previous = history["Close"].iloc[-2] if len(history) > 1 else latest
+            change = latest - previous
+            rows.append(
+                {
+                    "Symbol": symbol,
+                    "Price": round(float(latest), 2),
+                    "Change": round(float(change), 2),
+                    "% Change": f"{round(float(change / previous * 100), 2) if previous else 0:.2f}%",
+                    "Volume": int(history["Volume"].iloc[-1]),
+                }
+            )
+        except Exception:
+            rows.append(
+                {
+                    "Symbol": symbol,
+                    "Price": "N/A",
+                    "Change": "N/A",
+                    "% Change": "N/A",
+                    "Volume": "N/A",
+                }
+            )
+    return rows
+
+
+def _render_price_board(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        st.info("Current watchlist price data is unavailable right now.")
+        return
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def _render_portfolio(trader: Any) -> None:
+    if trader is None:
+        st.info("Alpaca not connected. Enter valid credentials to see live portfolio positions.")
+        return
+
+    try:
+        account = trader.get_account()
+        positions = trader.get_positions()
+    except Exception as exc:
+        st.error(f"Failed to fetch portfolio data: {exc}")
+        return
+
+    st.markdown("### Live Portfolio")
+    perf_cols = st.columns(3)
+    with perf_cols[0]:
+        st.metric("Equity", f"${account.equity:,.2f}")
+    with perf_cols[1]:
+        st.metric("Buying Power", f"${account.buying_power:,.2f}")
+    with perf_cols[2]:
+        st.metric("Portfolio Value", f"${account.portfolio_value:,.2f}")
+
+    if not positions:
+        st.info("No open positions in the Alpaca paper account.")
+        return
+
+    portfolio_rows = []
+    for pos in positions:
+        portfolio_rows.append(
+            {
+                "Symbol": pos["symbol"],
+                "Side": pos["side"],
+                "Qty": pos["qty"],
+                "Current Price": round(pos["current_price"], 2),
+                "Market Value": round(pos["market_value"], 2),
+                "P/L": round(pos["unrealized_pl"], 2),
+                "P/L %": f"{round(pos["unrealized_plpc"] * 100, 2)}%",
+            }
+        )
+    st.dataframe(portfolio_rows, use_container_width=True, hide_index=True)
 
 
 def _render_trade_logs(logs: list) -> None:
@@ -234,6 +320,7 @@ def _render_decision_cards(decisions: list[dict[str, Any]]) -> None:
     cols = st.columns(min(3, max(1, len(decisions))))
     for idx, decision in enumerate(decisions):
         with cols[idx]:
+            strategy_label = decision.get("strategy", "Adaptive")
             st.markdown(
                 f"""
                 <div style="
@@ -245,6 +332,9 @@ def _render_decision_cards(decisions: list[dict[str, Any]]) -> None:
                     box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
                 ">
                     <strong style="font-size: 1rem;">{decision['symbol']} · {decision['side'].upper()}</strong>
+                    <div style="color:#475569; font-size:0.92rem; margin:8px 0;">
+                        Strategy: {strategy_label}
+                    </div>
                     <div style="color:#475569; font-size:0.92rem; margin:8px 0;">
                         Qty: {decision['qty']} · Entry ${decision['entry_price']:.2f}
                     </div>
@@ -444,12 +534,6 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    overview_tab, agents_tab, trades_tab, decisions_tab = st.tabs([
-        "Overview",
-        "Agents",
-        "Trades",
-        "Decisions",
-    ])
 
     status_col1, status_col2, status_col3, status_col4 = st.columns(4)
     with status_col1:
@@ -463,109 +547,61 @@ def main() -> None:
         trade_summary = _summarize_trade_performance(snapshot["trade_logs"])
         st.metric("Paper Trades", trade_summary["total"])
 
-    if snapshot["last_error"]:
-        st.error(snapshot["last_error"])
+    mode_col, strategy_col, winrate_col, error_col = st.columns(4)
+    with mode_col:
+        st.metric("Decision Mode", snapshot.get("active_mode", "deterministic").title())
+    with strategy_col:
+        st.metric("Active Strategy", snapshot.get("active_strategy", "momentum"))
+    with winrate_col:
+        st.metric("Backtest Win Rate", f"{snapshot.get('win_rate', 0.0) * 100:.1f}%")
+    with error_col:
+        if snapshot["last_error"]:
+            st.error(snapshot["last_error"])
+        else:
+            st.success("No current errors")
 
-    with overview_tab:
-        st.markdown("## System Pulse")
-        if snapshot["last_scan_summary"]:
-            st.info(snapshot["last_scan_summary"])
+    market_col, portfolio_col = st.columns(2)
+    with market_col:
+        st.markdown("## Live Price Board")
+        _render_price_board(_fetch_watchlist_prices(watchlist))
+    with portfolio_col:
+        st.markdown("## Live Portfolio Overview")
+        trader = create_trader()
+        _render_portfolio(trader)
+
+    with st.expander("Strategy Selection Notes", expanded=True):
+        st.write(snapshot.get("strategy_reason", "Strategy selection will show after a completed scan."))
+        if snapshot.get("strategy_rankings"):
+            for strategy, pct in snapshot["strategy_rankings"].items():
+                st.write(f"- {strategy}: {pct:.0%}")
+
+    with st.expander("Backtest Summary", expanded=False):
         if snapshot["backtest_summary"]:
-            st.success(snapshot["backtest_summary"])
-
-        st.markdown("## Live Market Radar")
-        _render_agent_status_cards(_summarize_agent_status(snapshot["agent_logs"]))
-
-    with agents_tab:
-        st.markdown("## Agent Command Deck")
-        _render_agent_status_cards(_summarize_agent_status(snapshot["agent_logs"]))
-        st.markdown("## Live Agent Log")
-        _render_agent_logs(snapshot["agent_logs"])
-
-    with trades_tab:
-        st.markdown("## Recent Paper Trades")
-        _render_trade_logs(snapshot["trade_logs"])
-        if snapshot["backtest_summary"]:
-            with st.expander("Recent Backtest Summary", expanded=False):
-                st.text(snapshot["backtest_summary"])
-
-    with decisions_tab:
-        st.markdown("## Latest Approved Trade Decisions")
-        _render_decision_cards(snapshot["decision_summaries"])
-        if snapshot["last_scan_summary"]:
-            with st.expander("Latest Scan Notes", expanded=False):
-                st.text(snapshot["last_scan_summary"])
-
-    st.caption(
-        f"Last UI refresh: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
-    )
-
-    if st.session_state.auto_scan:
-        time.sleep(2)
-        st.rerun()
-
-    status_col1, status_col2, status_col3, status_col4 = st.columns(4)
-    with status_col1:
-        st.metric("Watchlist Size", len(watchlist))
-    with status_col2:
-        scanning = "Scanning..." if snapshot["is_scanning"] else "Idle"
-        st.metric("Engine Status", scanning)
-    with status_col3:
-        st.metric("Agent Log Entries", len(snapshot["agent_logs"]))
-    with status_col4:
-        trade_summary = _summarize_trade_performance(snapshot["trade_logs"])
-        st.metric("Paper Trades", trade_summary["total"])
-
-    if snapshot["last_error"]:
-        st.error(snapshot["last_error"])
-
-    if snapshot["last_scan_summary"]:
-        with st.expander("Latest Crew / Scan Summary", expanded=False):
-            st.text(snapshot["last_scan_summary"])
-
-    if snapshot["backtest_summary"]:
-        with st.expander("Recent Backtest Summary", expanded=False):
             st.text(snapshot["backtest_summary"])
+        else:
+            st.write("Backtest results will populate after the next scan.")
 
-    _inject_styles()
-    agent_status_list = _summarize_agent_status(snapshot["agent_logs"])
-    agent_activity = _summarize_agent_activity(snapshot["agent_logs"])
+    with st.expander("Latest Scan Summary", expanded=False):
+        if snapshot["last_scan_summary"]:
+            st.text(snapshot["last_scan_summary"])
+        else:
+            st.write("Scan summary will appear here once the system completes a cycle.")
 
     with st.container():
         st.markdown("## Current Agent Status")
-        _render_agent_status_cards(agent_status_list)
+        _render_agent_status_cards(_summarize_agent_status(snapshot["agent_logs"]))
 
     with st.container():
-        st.markdown("## Agent Activity Snapshot")
-        for agent_name, agent_data in agent_activity.items():
-            color = AGENT_COLORS.get(agent_name, "#475569")
-            st.markdown(
-                f"""
-                <div class='agent-card bot-pulse'>
-                    <strong style='color:{color};'>{agent_data['agent']}</strong>
-                    <div class='agent-meta'>Last updated: {agent_data['last_time']} · Messages: {agent_data['count']} · Level: {agent_data['level']}</div>
-                    <div style='margin-top:8px;'>{agent_data['last_message']}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        st.markdown("## Latest Approved Trade Decisions")
+        _render_decision_cards(snapshot["decision_summaries"])
 
-    log_col, trade_col = st.columns([1.1, 1])
-
-    with log_col:
-        st.subheader("Live Agent Log")
-        log_container = st.container()
-        with log_container:
-            _render_agent_logs(snapshot["agent_logs"])
-
-    with trade_col:
-        st.subheader("Recent Paper Trades")
+    with st.container():
+        st.markdown("## Recent Paper Trades")
         _render_trade_logs(snapshot["trade_logs"])
 
-    decision_section = st.container()
-    with decision_section:
-        st.subheader("Latest Approved Trade Decisions")
-        _render_decision_cards(snapshot["decision_summaries"])
+    with st.container():
+        st.markdown("## Live Agent Log")
+        _render_agent_logs(snapshot["agent_logs"])
 
     st.caption(
         f"Last UI refresh: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"

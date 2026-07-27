@@ -19,6 +19,19 @@ ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 CREWAI_LLM_MODEL = os.environ.get("CREWAI_LLM_MODEL", "gpt-4o-mini")
 CREWAI_LLM_TYPE = os.environ.get("CREWAI_LLM_TYPE", "openai")
+CREWAI_FORCE_DETERMINISTIC = os.environ.get("CREWAI_FORCE_DETERMINISTIC", "false").lower() in ("1", "true", "yes")
+
+# Broad market universe scanned before filtering down to the final watchlist
+MARKET_UNIVERSE = [
+    "AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "TSLA", "AMD",
+    "INTC", "CRM", "ORCL", "IBM", "PYPL", "SQ", "UBER", "LYFT",
+    "JNJ", "PFE", "MRK", "ABBV", "CVS", "WMT", "COST", "HD",
+    "LOW", "NKE", "SBUX", "DIS", "NFLX", "MCD", "JPM", "BAC",
+    "GS", "MS", "V", "MA", "COIN", "GM", "F", "CAT", "DE",
+    "BA", "RTX", "LMT", "UAL", "DAL", "AAL", "STZ", "KO", "PEP",
+]
+MAX_MARKET_SCAN_SYMBOLS = 40
+MAX_STRATEGY_WATCHLIST = 18
 
 # Risk parameters (enforced programmatically, not only by LLM)
 MAX_RISK_PER_TRADE = 0.02  # 2% of equity

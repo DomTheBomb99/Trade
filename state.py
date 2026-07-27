@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from config import MAX_AGENT_LOG_ENTRIES, MAX_TRADE_LOG_ENTRIES
+from risk_manager import RiskDecision
 
 
 @dataclass
@@ -40,7 +41,23 @@ class DecisionSummaryEntry:
     take_profit: float
     trailing_stop_pct: float
     risk_reward_ratio: float
+    strategy: str
     rationale: str
+
+    @classmethod
+    def from_decision(cls, decision: RiskDecision) -> "DecisionSummaryEntry":
+        return cls(
+            symbol=decision.symbol,
+            side=decision.side,
+            qty=decision.qty,
+            entry_price=decision.entry_price,
+            stop_loss=decision.stop_loss,
+            take_profit=decision.take_profit,
+            trailing_stop_pct=decision.trailing_stop_pct,
+            risk_reward_ratio=decision.risk_reward_ratio,
+            strategy=decision.strategy,
+            rationale=decision.rationale,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +69,7 @@ class DecisionSummaryEntry:
             "take_profit": round(self.take_profit, 2),
             "trailing_stop_pct": round(self.trailing_stop_pct, 4),
             "risk_reward_ratio": round(self.risk_reward_ratio, 2),
+            "strategy": self.strategy,
             "rationale": self.rationale,
         }
 
@@ -61,6 +79,11 @@ class TradingState:
     agent_logs: deque = field(default_factory=lambda: deque(maxlen=MAX_AGENT_LOG_ENTRIES))
     trade_logs: deque = field(default_factory=lambda: deque(maxlen=MAX_TRADE_LOG_ENTRIES))
     watchlist: list[str] = field(default_factory=list)
+    active_mode: str = "deterministic"
+    active_strategy: str = "momentum"
+    strategy_reason: str = ""
+    win_rate: float = 0.0
+    strategy_rankings: dict[str, float] = field(default_factory=dict)
     last_scan_summary: str = ""
     backtest_summary: str = ""
     decision_summaries: list[DecisionSummaryEntry] = field(default_factory=list)
@@ -119,9 +142,32 @@ class TradingState:
         with self._lock:
             self.backtest_summary = summary
 
-    def set_decision_summaries(self, decisions: list[DecisionSummaryEntry]) -> None:
+    def set_active_mode(self, mode: str) -> None:
         with self._lock:
-            self.decision_summaries = decisions
+            self.active_mode = mode
+
+    def set_active_strategy(self, strategy: str) -> None:
+        with self._lock:
+            self.active_strategy = strategy
+
+    def set_strategy_reason(self, reason: str) -> None:
+        with self._lock:
+            self.strategy_reason = reason
+
+    def set_win_rate(self, rate: float) -> None:
+        with self._lock:
+            self.win_rate = rate
+
+    def set_strategy_rankings(self, rankings: dict[str, float]) -> None:
+        with self._lock:
+            self.strategy_rankings = rankings
+
+    def set_decision_summaries(self, decisions: list[DecisionSummaryEntry] | list[RiskDecision]) -> None:
+        with self._lock:
+            if decisions and isinstance(decisions[0], RiskDecision):
+                self.decision_summaries = [DecisionSummaryEntry.from_decision(decision) for decision in decisions]  # type: ignore[arg-type]
+            else:
+                self.decision_summaries = decisions  # type: ignore[assignment]
 
     def replace_trade_logs(
         self,
@@ -153,6 +199,11 @@ class TradingState:
                 "agent_logs": list(self.agent_logs),
                 "trade_logs": list(self.trade_logs),
                 "watchlist": list(self.watchlist),
+                "active_mode": self.active_mode,
+                "active_strategy": self.active_strategy,
+                "strategy_reason": self.strategy_reason,
+                "win_rate": self.win_rate,
+                "strategy_rankings": dict(self.strategy_rankings),
                 "last_scan_summary": self.last_scan_summary,
                 "backtest_summary": self.backtest_summary,
                 "decision_summaries": [entry.to_dict() for entry in self.decision_summaries],

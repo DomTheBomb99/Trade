@@ -47,6 +47,24 @@ class AlpacaTrader:
         positions = self.api.list_positions()
         return {position.symbol.upper() for position in positions}
 
+    def get_positions(self) -> list[dict[str, Any]]:
+        positions = self.api.list_positions()
+        results: list[dict[str, Any]] = []
+        for position in positions:
+            results.append(
+                {
+                    "symbol": position.symbol,
+                    "qty": float(position.qty),
+                    "market_value": float(position.market_value),
+                    "cost_basis": float(position.cost_basis),
+                    "unrealized_pl": float(position.unrealized_pl),
+                    "unrealized_plpc": float(position.unrealized_plpc),
+                    "current_price": float(position.current_price),
+                    "side": position.side,
+                }
+            )
+        return results
+
     def execute_bracket_trade(self, decision: RiskDecision) -> dict[str, Any]:
         if not decision.approved or decision.qty < 1:
             return {"executed": False, "reason": decision.rationale}

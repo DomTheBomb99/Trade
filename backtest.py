@@ -185,6 +185,12 @@ def run_backtest(symbols: list[str] | None = None) -> list[BacktestResult]:
     return results
 
 
+def average_backtest_win_rate(results: list[BacktestResult]) -> float:
+    if not results:
+        return 0.0
+    return float(sum(result.win_rate for result in results) / len(results))
+
+
 def summarize_backtest(results: list[BacktestResult]) -> str:
     if not results:
         return "No backtest results available."

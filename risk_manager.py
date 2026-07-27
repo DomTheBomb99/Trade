@@ -23,6 +23,7 @@ class RiskDecision:
     risk_dollars: float
     reward_dollars: float
     risk_reward_ratio: float
+    strategy: str
     rationale: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -38,6 +39,7 @@ class RiskDecision:
             "risk_dollars": round(self.risk_dollars, 2),
             "reward_dollars": round(self.reward_dollars, 2),
             "risk_reward_ratio": round(self.risk_reward_ratio, 2),
+            "strategy": self.strategy,
             "rationale": self.rationale,
         }
 
@@ -54,6 +56,7 @@ def evaluate_trade(
     sentiment: SentimentSnapshot,
     account_equity: float,
     buying_power: float,
+    strategy: str = "Adaptive",
 ) -> RiskDecision:
     symbol = technical.symbol
     price = technical.price
@@ -71,6 +74,7 @@ def evaluate_trade(
             risk_dollars=0,
             reward_dollars=0,
             risk_reward_ratio=0,
+            strategy=strategy,
             rationale="Account equity unavailable or zero",
         )
 
@@ -92,6 +96,7 @@ def evaluate_trade(
             risk_dollars=0,
             reward_dollars=0,
             risk_reward_ratio=0,
+            strategy=strategy,
             rationale="Rejected: technical BUY conflicts with bearish sentiment",
         )
     else:
@@ -107,6 +112,7 @@ def evaluate_trade(
             risk_dollars=0,
             reward_dollars=0,
             risk_reward_ratio=0,
+            strategy=strategy,
             rationale="No aligned technical + sentiment setup for entry",
         )
 
@@ -137,6 +143,7 @@ def evaluate_trade(
             risk_dollars=0,
             reward_dollars=0,
             risk_reward_ratio=REWARD_TO_RISK_RATIO,
+            strategy=strategy,
             rationale="Position size below 1 share after 2% risk cap",
         )
 
@@ -156,6 +163,7 @@ def evaluate_trade(
                 risk_dollars=0,
                 reward_dollars=0,
                 risk_reward_ratio=REWARD_TO_RISK_RATIO,
+                strategy=strategy,
                 rationale="Insufficient buying power for minimum position",
             )
 
@@ -176,6 +184,7 @@ def evaluate_trade(
             risk_dollars=risk_dollars,
             reward_dollars=reward_dollars,
             risk_reward_ratio=actual_rr,
+            strategy=strategy,
             rationale=f"Rejected: reward-to-risk {actual_rr:.2f} below required {REWARD_TO_RISK_RATIO}:1",
         )
 
@@ -193,6 +202,7 @@ def evaluate_trade(
             risk_dollars=risk_dollars,
             reward_dollars=reward_dollars,
             risk_reward_ratio=actual_rr,
+            strategy=strategy,
             rationale=f"Rejected: risk {risk_pct:.2f}% exceeds 2% equity cap",
         )
 
@@ -208,6 +218,7 @@ def evaluate_trade(
         risk_dollars=risk_dollars,
         reward_dollars=reward_dollars,
         risk_reward_ratio=actual_rr,
+        strategy=strategy,
         rationale=(
             f"Approved {side.upper()} {qty} shares at ${price:.2f}; "
             f"risk ${risk_dollars:.2f} ({risk_pct:.2f}% equity), "

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import traceback
 
-from config import DEFAULT_WATCHLIST
+from config import DEFAULT_WATCHLIST, CREWAI_FORCE_DETERMINISTIC, CREWAI_LLM_TYPE, OPENAI_API_KEY
 from state import APP_STATE
 from trading import AlpacaTrader, create_trader
-from backtest import run_backtest, summarize_backtest
+from backtest import average_backtest_win_rate, run_backtest, summarize_backtest
 
 
 def _log(agent: str, message: str, level: str = "info") -> None:
@@ -51,35 +51,73 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
         _log("Technical Market Scanner", "Scanning watchlist for momentum, MAs, RSI, MACD...")
         _log("Web Sentiment Analyst", "Scraping Yahoo Finance + Google News headlines...")
 
-        crew = build_trading_crew(symbols, account)
-        if crew is not None and CREWAI_AVAILABLE:
-            _log("Orchestrator", "CrewAI team collaborating on trade decision...")
-            try:
-                crew_result = crew.kickoff()
-                crew_summary = extract_crew_output(crew_result)
-                APP_STATE.set_last_scan_summary(crew_summary[:4000])
-                _log("Orchestrator", "Crew deliberation complete. Parsing risk-approved setups...")
-                _log("Risk Manager", crew_summary[:500] + ("..." if len(crew_summary) > 500 else ""))
-            except Exception as crew_error:
-                _log(
-                    "Orchestrator",
-                    f"CrewAI deliberation failed ({crew_error}). Falling back to deterministic pipeline.",
-                    "warning",
-                )
-                APP_STATE.set_last_scan_summary(f"Crew fallback: {crew_error}")
-        else:
+        use_crew = (
+            not CREWAI_FORCE_DETERMINISTIC
+            and CREWAI_AVAILABLE
+            and (CREWAI_LLM_TYPE != "openai" or bool(OPENAI_API_KEY))
+        )
+
+        if CREWAI_FORCE_DETERMINISTIC:
             _log(
                 "Orchestrator",
-                "CrewAI is unavailable. Using deterministic strategy pipeline only.",
+                "Deterministic-only mode enabled. Skipping CrewAI and using internal strategy logic.",
                 "warning",
             )
-            APP_STATE.set_last_scan_summary("CrewAI unavailable; deterministic pipeline only.")
+            APP_STATE.set_active_mode("deterministic")
+            APP_STATE.set_last_scan_summary("Deterministic mode: CrewAI skipped.")
+        elif CREWAI_LLM_TYPE == "openai" and not OPENAI_API_KEY:
+            _log(
+                "Orchestrator",
+                "OpenAI API key missing. Skipping CrewAI and using deterministic pipeline.",
+                "warning",
+            )
+            APP_STATE.set_active_mode("deterministic")
+            APP_STATE.set_last_scan_summary("No OpenAI key; deterministic pipeline only.")
+
+        if use_crew:
+            crew = build_trading_crew(symbols, account)
+            if crew is not None:
+                APP_STATE.set_active_mode("crew + deterministic")
+                _log("Orchestrator", "CrewAI team collaborating on trade decision...")
+                try:
+                    crew_result = crew.kickoff()
+                    crew_summary = extract_crew_output(crew_result)
+                    APP_STATE.set_last_scan_summary(crew_summary[:4000])
+                    _log("Orchestrator", "Crew deliberation complete. Parsing risk-approved setups...")
+                    _log("Risk Manager", crew_summary[:500] + ("..." if len(crew_summary) > 500 else ""))
+                except Exception as crew_error:
+                    APP_STATE.set_active_mode("deterministic")
+                    _log(
+                        "Orchestrator",
+                        f"CrewAI deliberation failed ({crew_error}). Falling back to deterministic pipeline.",
+                        "warning",
+                    )
+                    APP_STATE.set_last_scan_summary(f"Crew fallback: {crew_error}")
+            else:
+                APP_STATE.set_active_mode("deterministic")
+                _log(
+                    "Orchestrator",
+                    "CrewAI is unavailable. Using deterministic strategy pipeline only.",
+                    "warning",
+                )
+                APP_STATE.set_last_scan_summary("CrewAI unavailable; deterministic pipeline only.")
+        else:
+            APP_STATE.set_active_mode("deterministic")
+            _log(
+                "Orchestrator",
+                "Skipping CrewAI. Using deterministic strategy pipeline only.",
+                "warning",
+            )
+            if not APP_STATE.last_scan_summary:
+                APP_STATE.set_last_scan_summary("CrewAI skipped; deterministic pipeline only.")
 
         open_positions = trader.get_open_position_symbols()
         approved_decisions = run_deterministic_pipeline(symbols, account, open_positions)
         APP_STATE.set_decision_summaries(approved_decisions)
 
         backtest_results = run_backtest(symbols)
+        win_rate = average_backtest_win_rate(backtest_results)
+        APP_STATE.set_win_rate(win_rate)
         APP_STATE.set_backtest_summary(summarize_backtest(backtest_results))
 
         if not approved_decisions:

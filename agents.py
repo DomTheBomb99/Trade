@@ -37,10 +37,18 @@ except ImportError:  # pragma: no cover
 
         return decorator
 
-from config import CREWAI_LLM_MODEL, CREWAI_LLM_TYPE, OPENAI_API_KEY
+from config import (
+    CREWAI_LLM_MODEL,
+    CREWAI_LLM_TYPE,
+    MARKET_UNIVERSE,
+    MAX_MARKET_SCAN_SYMBOLS,
+    MAX_STRATEGY_WATCHLIST,
+    OPENAI_API_KEY,
+)
 from market_data import TechnicalSnapshot, analyze_symbol, scan_watchlist
 from risk_manager import RiskDecision, evaluate_trade
 from sentiment import SentimentSnapshot, analyze_sentiment, scan_sentiment
+from state import APP_STATE
 from trading import AccountSummary
 
 
@@ -307,6 +315,40 @@ def build_trading_crew(watchlist: list[str], account: AccountSummary) -> Crew | 
     )
 
 
+def _build_broad_watchlist(watchlist: list[str]) -> list[str]:
+    symbols: list[str] = []
+    for symbol in watchlist + MARKET_UNIVERSE:
+        candidate = symbol.strip().upper()
+        if candidate and candidate not in symbols:
+            symbols.append(candidate)
+        if len(symbols) >= MAX_MARKET_SCAN_SYMBOLS:
+            break
+    return symbols
+
+
+def _assign_strategy(technical: TechnicalSnapshot, sentiment: SentimentSnapshot) -> str:
+    if technical.signal == "BUY" and sentiment.mood == "BULLISH":
+        return "Momentum"
+    if technical.signal == "BUY" and sentiment.mood == "NEUTRAL":
+        return "Trend-Following"
+    if technical.signal == "SELL" or sentiment.mood == "BEARISH":
+        return "Defensive"
+    if technical.signal == "HOLD" and sentiment.mood == "BULLISH":
+        return "Trend-Following"
+    return "Adaptive"
+
+
+def _rank_strategies(decisions: list[RiskDecision]) -> dict[str, float]:
+    strategy_counts: dict[str, int] = {}
+    for decision in decisions:
+        strategy_counts[decision.strategy] = strategy_counts.get(decision.strategy, 0) + 1
+    total = sum(strategy_counts.values())
+    return {
+        strategy: round(count / total, 2) if total else 0.0
+        for strategy, count in strategy_counts.items()
+    }
+
+
 def run_deterministic_pipeline(
     watchlist: list[str],
     account: AccountSummary,
@@ -316,8 +358,9 @@ def run_deterministic_pipeline(
     Run the same logic as the crew tools without LLM latency.
     Used for reliable execution after crew deliberation.
     """
-    technicals = scan_watchlist(watchlist)
-    sentiments = {s.symbol: s for s in scan_sentiment(watchlist)}
+    broad_watchlist = _build_broad_watchlist(watchlist)
+    technicals = scan_watchlist(broad_watchlist)
+    sentiments = {s.symbol: s for s in scan_sentiment(broad_watchlist)}
 
     candidates: list[RiskDecision] = []
     for technical in sorted(technicals, key=lambda t: t.momentum_score, reverse=True):
@@ -328,9 +371,24 @@ def run_deterministic_pipeline(
             continue
         decision = evaluate_trade(technical, sentiment, account.equity, account.buying_power)
         if decision.approved:
+            decision.strategy = _assign_strategy(technical, sentiment)
             candidates.append(decision)
-            if len(candidates) >= 2:
+            if len(candidates) >= MAX_STRATEGY_WATCHLIST:
                 break
+
+    if not candidates:
+        return []
+
+    strategy_rankings = _rank_strategies(candidates)
+    best_strategy = max(strategy_rankings, key=strategy_rankings.get)
+    APP_STATE.set_active_strategy(best_strategy)
+    APP_STATE.set_strategy_rankings(strategy_rankings)
+    APP_STATE.set_strategy_reason(
+        f"Selected strategy based on {len(candidates)} approved candidates: "
+        + ", ".join(
+            f"{strategy} {pct:.0%}" for strategy, pct in strategy_rankings.items()
+        )
+    )
     return candidates
 
 
