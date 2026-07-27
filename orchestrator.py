@@ -41,7 +41,8 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
             f"Paper account equity ${account.equity:,.2f} | buying power ${account.buying_power:,.2f}",
         )
 
-        if not trader.is_market_open():
+        market_open = trader.is_market_open()
+        if not market_open:
             msg = "Market is closed. Analysis completed; orders skipped until market open."
             _log("Orchestrator", msg, "warning")
         else:
@@ -99,7 +100,7 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
             )
             _log("Risk Manager", decision.rationale)
 
-            if not trader.is_market_open():
+            if not market_open:
                 _log(
                     "Orchestrator",
                     f"Would execute {decision.side.upper()} {decision.qty} {decision.symbol} at market open",
