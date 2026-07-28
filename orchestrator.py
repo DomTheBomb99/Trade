@@ -122,19 +122,14 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
         APP_STATE.set_win_rate(win_rate)
         APP_STATE.set_backtest_summary(summarize_backtest(backtest_results))
 
+        strategy_performance = _compute_strategy_performance(trader)
+        APP_STATE.set_strategy_performance(strategy_performance)
+
         equity_trend = APP_STATE.get_equity_trend()
-        if win_rate >= 0.55 and equity_trend > 0.01:
-            bias = {"Momentum": 1.2, "Trend-Following": 1.1, "Defensive": 0.8}
-            bias_reason = "Strong performance; biasing toward growth-oriented strategies."
-        elif win_rate < 0.45 or equity_trend < -0.02:
-            bias = {"Momentum": 0.8, "Trend-Following": 0.9, "Defensive": 1.3}
-            bias_reason = "Weak recent performance; biasing toward defensive risk control."
-        else:
-            bias = {"Momentum": 1.0, "Trend-Following": 1.0, "Defensive": 1.0}
-            bias_reason = "Balanced performance; no strong strategy bias."
+        bias = _compute_strategy_bias(win_rate, equity_trend, strategy_performance)
         APP_STATE.set_strategy_bias(bias)
         APP_STATE.set_strategy_reason(
-            f"{bias_reason} Equity trend {equity_trend*100:.1f}%, backtest win rate {win_rate*100:.1f}%."
+            _build_strategy_reason(win_rate, equity_trend, strategy_performance, bias)
         )
 
         if not approved_decisions:
@@ -177,6 +172,7 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
                         f"Bracket TP ${result['take_profit']:.2f}, SL ${result['stop_loss']:.2f}, "
                         f"trailing {result['trailing_stop_pct']}%"
                     ),
+                    strategy=decision.strategy,
                 )
                 _log(
                     "Orchestrator",
@@ -201,6 +197,65 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
         return tb
 
 
+def _compute_strategy_performance(trader: AlpacaTrader) -> dict[str, float]:
+    performance: dict[str, float] = {}
+    try:
+        positions = trader.get_positions()
+        strategy_map: dict[str, str] = {}
+        for entry in list(APP_STATE.trade_logs):
+            if entry.strategy and entry.strategy != "Unknown":
+                strategy_map[entry.symbol.upper()] = entry.strategy
+
+        for position in positions:
+            strategy = strategy_map.get(position["symbol"].upper(), "Adaptive")
+            performance[strategy] = performance.get(strategy, 0.0) + float(position["unrealized_pl"])
+    except Exception:
+        pass
+    return performance
+
+
+def _compute_strategy_bias(
+    win_rate: float,
+    equity_trend: float,
+    performance: dict[str, float],
+) -> dict[str, float]:
+    default = {"Momentum": 1.0, "Trend-Following": 1.0, "Defensive": 1.0}
+    bias = dict(default)
+    if not performance:
+        return bias
+    for strategy, pnl in performance.items():
+        if pnl > 0:
+            bias[strategy] = min(1.4, 1.0 + pnl / 1000)
+        elif pnl < 0:
+            bias[strategy] = max(0.7, 1.0 + pnl / 1000)
+    if win_rate >= 0.55 and equity_trend > 0.01:
+        bias = {k: min(1.4, v + 0.1) for k, v in bias.items()}
+    elif win_rate < 0.45 or equity_trend < -0.02:
+        bias = {k: max(0.7, v - 0.1) for k, v in bias.items()}
+    return bias
+
+
+def _build_strategy_reason(
+    win_rate: float,
+    equity_trend: float,
+    performance: dict[str, float],
+    bias: dict[str, float],
+) -> str:
+    reasons: list[str] = []
+    if performance:
+        reasons.append(
+            "Real-time strategy PnL: "
+            + ", ".join(f"{strategy} ${pnl:.1f}" for strategy, pnl in performance.items())
+        )
+    reasons.append(f"Backtest win rate {win_rate*100:.1f}%")
+    reasons.append(f"Equity trend {equity_trend*100:.1f}%")
+    reasons.append(
+        "Bias updated: "
+        + ", ".join(f"{strategy} x{weight:.2f}" for strategy, weight in bias.items())
+    )
+    return ". ".join(reasons)
+
+
 def sync_alpaca_trade_log(trader: AlpacaTrader | None = None) -> None:
     """Refresh recent Alpaca orders into the dashboard trade log."""
     active_trader = trader or create_trader()
@@ -208,8 +263,16 @@ def sync_alpaca_trade_log(trader: AlpacaTrader | None = None) -> None:
         return
     try:
         orders = active_trader.get_recent_orders(limit=20)
+        positions = active_trader.get_positions()
+        pnl_by_symbol = {pos["symbol"].upper(): pos["unrealized_pl"] for pos in positions}
+        strategy_by_symbol = {
+            entry.symbol.upper(): entry.strategy for entry in APP_STATE.trade_logs if getattr(entry, "strategy", None)
+        }
         entries = []
         for order in orders:
+            symbol = order["symbol"].upper()
+            strategy = strategy_by_symbol.get(symbol, "Adaptive")
+            pnl = pnl_by_symbol.get(symbol)
             entries.append(
                 (
                     order["symbol"],
@@ -218,6 +281,8 @@ def sync_alpaca_trade_log(trader: AlpacaTrader | None = None) -> None:
                     order["status"],
                     order["id"],
                     f"{order['type']} @ avg ${order['filled_avg_price']:.2f}",
+                    strategy,
+                    pnl,
                 )
             )
         APP_STATE.replace_trade_logs(entries)

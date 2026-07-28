@@ -29,6 +29,8 @@ class TradeLogEntry:
     status: str
     order_id: str
     details: str = ""
+    strategy: str = "Adaptive"
+    pnl: float | None = None
 
 
 @dataclass
@@ -85,6 +87,7 @@ class TradingState:
     win_rate: float = 0.0
     strategy_rankings: dict[str, float] = field(default_factory=dict)
     strategy_bias: dict[str, float] = field(default_factory=dict)
+    strategy_performance: dict[str, float] = field(default_factory=dict)
     equity_history: list[float] = field(default_factory=list)
     last_scan_summary: str = ""
     backtest_summary: str = ""
@@ -111,6 +114,8 @@ class TradingState:
         status: str,
         order_id: str,
         details: str = "",
+        strategy: str = "Adaptive",
+        pnl: float | None = None,
     ) -> None:
         entry = TradeLogEntry(
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -120,6 +125,8 @@ class TradingState:
             status=status,
             order_id=order_id,
             details=details,
+            strategy=strategy,
+            pnl=pnl,
         )
         with self._lock:
             self.trade_logs.appendleft(entry)
@@ -168,6 +175,17 @@ class TradingState:
         with self._lock:
             self.strategy_bias = bias
 
+    def update_strategy_performance(self, performance: dict[str, float]) -> None:
+        with self._lock:
+            existing = dict(self.strategy_performance)
+            for strategy, value in performance.items():
+                existing[strategy] = existing.get(strategy, 0.0) + value
+            self.strategy_performance = existing
+
+    def set_strategy_performance(self, performance: dict[str, float]) -> None:
+        with self._lock:
+            self.strategy_performance = performance
+
     def add_equity_point(self, equity: float) -> None:
         with self._lock:
             history = list(self.equity_history)
@@ -189,12 +207,12 @@ class TradingState:
 
     def replace_trade_logs(
         self,
-        entries: list[tuple[str, str, float, str, str, str]],
+        entries: list[tuple[str, str, float, str, str, str, str, float | None]],
     ) -> None:
         """Replace trade logs with fresh Alpaca sync data."""
         with self._lock:
             self.trade_logs.clear()
-            for symbol, side, qty, status, order_id, details in entries:
+            for symbol, side, qty, status, order_id, details, strategy, pnl in entries:
                 self.trade_logs.appendleft(
                     TradeLogEntry(
                         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -204,6 +222,8 @@ class TradingState:
                         status=status,
                         order_id=order_id,
                         details=details,
+                        strategy=strategy,
+                        pnl=pnl,
                     )
                 )
 
@@ -223,6 +243,7 @@ class TradingState:
                 "win_rate": self.win_rate,
                 "strategy_rankings": dict(self.strategy_rankings),
                 "strategy_bias": dict(self.strategy_bias),
+                "strategy_performance": dict(self.strategy_performance),
                 "equity_history": list(self.equity_history),
                 "last_scan_summary": self.last_scan_summary,
                 "backtest_summary": self.backtest_summary,

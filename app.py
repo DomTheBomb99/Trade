@@ -304,8 +304,10 @@ def _render_trade_logs(logs: list) -> None:
                 "Symbol": entry.symbol,
                 "Side": entry.side.upper(),
                 "Qty": entry.qty,
+                "Strategy": getattr(entry, "strategy", "Adaptive"),
                 "Status": entry.status,
                 "Order ID": entry.order_id[:8] + "...",
+                "P/L": round(entry.pnl, 2) if getattr(entry, "pnl", None) is not None else "N/A",
                 "Details": entry.details,
             }
         )
@@ -577,6 +579,10 @@ def main() -> None:
             st.write("**Strategy mix:**")
             for strategy, pct in snapshot["strategy_rankings"].items():
                 st.write(f"- {strategy}: {pct:.0%}")
+        if snapshot.get("strategy_performance"):
+            st.write("**Strategy performance (open positions):**")
+            for strategy, pnl in snapshot["strategy_performance"].items():
+                st.write(f"- {strategy}: ${pnl:.2f}")
         if snapshot.get("strategy_bias"):
             st.write("**Adaptive strategy bias:**")
             for strategy, weight in snapshot["strategy_bias"].items():
