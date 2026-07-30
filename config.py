@@ -42,6 +42,9 @@ DEFAULT_WATCHLIST = ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "TSLA", "A
 # Trading cycle interval (seconds) when auto-scan is enabled
 SCAN_INTERVAL_SECONDS = 300
 
+# Auto-start the scan loop when the Streamlit app loads
+DEFAULT_AUTO_SCAN = os.environ.get("DEFAULT_AUTO_SCAN", "true").lower() in ("1", "true", "yes")
+
 # In-memory log limits for dashboard display
 MAX_AGENT_LOG_ENTRIES = 500
 MAX_TRADE_LOG_ENTRIES = 200

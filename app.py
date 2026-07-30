@@ -10,7 +10,7 @@ from typing import Any
 import streamlit as st  # type: ignore
 import yfinance as yf  # type: ignore
 
-from config import DEFAULT_WATCHLIST, SCAN_INTERVAL_SECONDS
+from config import DEFAULT_AUTO_SCAN, DEFAULT_WATCHLIST, SCAN_INTERVAL_SECONDS
 from orchestrator import run_trading_cycle, sync_alpaca_trade_log
 from state import APP_STATE
 from trading import create_trader
@@ -69,7 +69,7 @@ def _init_session() -> None:
     if "watchlist_text" not in st.session_state:
         st.session_state.watchlist_text = ", ".join(DEFAULT_WATCHLIST)
     if "auto_scan" not in st.session_state:
-        st.session_state.auto_scan = False
+        st.session_state.auto_scan = DEFAULT_AUTO_SCAN
     if "scan_thread" not in st.session_state:
         st.session_state.scan_thread = None
     if "stop_event" not in st.session_state:
@@ -82,8 +82,15 @@ def _parse_watchlist(text: str) -> list[str]:
 
 def _background_scan_loop(watchlist: list[str], stop_event: threading.Event) -> None:
     while not stop_event.is_set():
-        run_trading_cycle(watchlist)
-        sync_alpaca_trade_log()
+        try:
+            run_trading_cycle(watchlist)
+            sync_alpaca_trade_log()
+        except Exception as exc:  # pragma: no cover
+            APP_STATE.add_agent_log(
+                "Orchestrator",
+                f"Background scan loop error: {exc}",
+                "error",
+            )
         for _ in range(SCAN_INTERVAL_SECONDS):
             if stop_event.is_set():
                 break
@@ -103,6 +110,17 @@ def _start_auto_scan(watchlist: list[str]) -> None:
     )
     st.session_state.scan_thread = thread
     thread.start()
+
+
+def _ensure_auto_scan_running(watchlist: list[str]) -> None:
+    if not st.session_state.auto_scan:
+        return
+    scan_thread = st.session_state.scan_thread
+    stop_event: threading.Event = st.session_state.stop_event
+    if scan_thread is None or not scan_thread.is_alive() or stop_event.is_set():
+        _log = APP_STATE.add_agent_log
+        _log("Orchestrator", "Auto-scan restart requested by health monitor.", "warning")
+        _start_auto_scan(watchlist)
 
 
 def _stop_auto_scan() -> None:
@@ -474,7 +492,10 @@ def main() -> None:
                 sync_alpaca_trade_log()
             st.success("Scan complete.")
 
-        auto_scan = st.checkbox("Auto-scan every 5 minutes", value=st.session_state.auto_scan)
+        auto_scan = st.checkbox(
+            "Auto-scan every 5 minutes (self-healing)",
+            value=st.session_state.auto_scan,
+        )
         if auto_scan and not st.session_state.auto_scan:
             st.session_state.auto_scan = True
             _start_auto_scan(watchlist)
@@ -491,7 +512,7 @@ def main() -> None:
             """
             - **Technical Market Scanner** — momentum, MAs, RSI, MACD
             - **Web Sentiment Analyst** — real-time news sentiment and narrative risk
-            - **Strategy Selector** — chooses breakout, trend-following, or defensive strategy
+            - **Strategy Selector** — chooses breakout, trend-following, 20-minute momentum, or defensive strategy
             - **Risk Manager** — enforces 2% equity risk, 3:1 R:R, and bracket order discipline
             """
         )
@@ -509,6 +530,7 @@ def main() -> None:
 
     _inject_styles()
     snapshot = APP_STATE.snapshot()
+    _ensure_auto_scan_running(watchlist)
 
     st.markdown(
         f"""
@@ -544,7 +566,12 @@ def main() -> None:
         scanning = "Scanning..." if snapshot["is_scanning"] else "Idle"
         st.metric("Engine Status", scanning)
     with status_col3:
-        st.metric("Agent Log Entries", len(snapshot["agent_logs"]))
+        health = (
+            "Healthy"
+            if st.session_state.scan_thread and st.session_state.scan_thread.is_alive()
+            else "Stopped"
+        )
+        st.metric("Auto-scan Health", health)
     with status_col4:
         trade_summary = _summarize_trade_performance(snapshot["trade_logs"])
         st.metric("Paper Trades", trade_summary["total"])

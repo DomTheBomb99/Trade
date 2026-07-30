@@ -327,10 +327,13 @@ def _build_broad_watchlist(watchlist: list[str]) -> list[str]:
 
 
 def _assign_strategy(technical: TechnicalSnapshot, sentiment: SentimentSnapshot) -> str:
-    if technical.signal == "BUY" and sentiment.mood == "BULLISH":
-        return "Momentum"
-    if technical.signal == "BUY" and sentiment.mood == "NEUTRAL":
-        return "Trend-Following"
+    if technical.signal == "BUY":
+        if sentiment.mood == "BULLISH" and technical.momentum_score >= 4.5:
+            return "20-Min Trader"
+        if sentiment.mood == "BULLISH":
+            return "Momentum"
+        if sentiment.mood == "NEUTRAL":
+            return "Trend-Following"
     if technical.signal == "SELL" or sentiment.mood == "BEARISH":
         return "Defensive"
     if technical.signal == "HOLD" and sentiment.mood == "BULLISH":
