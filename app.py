@@ -285,7 +285,7 @@ def _render_portfolio(trader: Any) -> None:
                 "Current Price": round(pos["current_price"], 2),
                 "Market Value": round(pos["market_value"], 2),
                 "P/L": round(pos["unrealized_pl"], 2),
-                "P/L %": f"{round(pos["unrealized_plpc"] * 100, 2)}%",
+                "P/L %": f"{round(pos['unrealized_plpc'] * 100, 2)}%",
             }
         )
     st.dataframe(portfolio_rows, use_container_width=True, hide_index=True)
