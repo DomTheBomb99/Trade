@@ -621,6 +621,12 @@ def main() -> None:
         else:
             st.write("Backtest results will populate after the next scan.")
 
+    with st.expander("XAU/USD 15m MACD Backtest", expanded=False):
+        if snapshot.get("xau_backtest_summary"):
+            st.text(snapshot["xau_backtest_summary"])
+        else:
+            st.write("XAU/USD 15m MACD backtest summary will appear after the next scan.")
+
     with st.expander("Latest Scan Summary", expanded=False):
         if snapshot["last_scan_summary"]:
             st.text(snapshot["last_scan_summary"])

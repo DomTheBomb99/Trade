@@ -8,6 +8,7 @@ from config import DEFAULT_WATCHLIST, CREWAI_FORCE_DETERMINISTIC, CREWAI_LLM_TYP
 from state import APP_STATE
 from trading import AlpacaTrader, create_trader
 from backtest import average_backtest_win_rate, run_backtest, summarize_backtest
+from xau_backtest import run_xau_backtest
 
 
 def _log(agent: str, message: str, level: str = "info") -> None:
@@ -121,6 +122,12 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
         win_rate = average_backtest_win_rate(backtest_results)
         APP_STATE.set_win_rate(win_rate)
         APP_STATE.set_backtest_summary(summarize_backtest(backtest_results))
+
+        xau_result = run_xau_backtest("XAUUSD=X", lookback_days=90)
+        if xau_result is not None:
+            APP_STATE.set_xau_backtest_summary(xau_result.summary)
+        else:
+            APP_STATE.set_xau_backtest_summary("XAU/USD 15m backtest unavailable or insufficient data.")
 
         strategy_performance = _compute_strategy_performance(trader)
         APP_STATE.set_strategy_performance(strategy_performance)

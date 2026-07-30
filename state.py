@@ -91,6 +91,7 @@ class TradingState:
     equity_history: list[float] = field(default_factory=list)
     last_scan_summary: str = ""
     backtest_summary: str = ""
+    xau_backtest_summary: str = ""
     decision_summaries: list[DecisionSummaryEntry] = field(default_factory=list)
     is_scanning: bool = False
     last_error: str = ""
@@ -150,6 +151,10 @@ class TradingState:
     def set_backtest_summary(self, summary: str) -> None:
         with self._lock:
             self.backtest_summary = summary
+
+    def set_xau_backtest_summary(self, summary: str) -> None:
+        with self._lock:
+            self.xau_backtest_summary = summary
 
     def set_active_mode(self, mode: str) -> None:
         with self._lock:
@@ -247,6 +252,7 @@ class TradingState:
                 "equity_history": list(self.equity_history),
                 "last_scan_summary": self.last_scan_summary,
                 "backtest_summary": self.backtest_summary,
+                "xau_backtest_summary": self.xau_backtest_summary,
                 "decision_summaries": [entry.to_dict() for entry in self.decision_summaries],
                 "is_scanning": self.is_scanning,
                 "last_error": self.last_error,
