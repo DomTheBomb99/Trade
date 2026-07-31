@@ -76,49 +76,49 @@ def _simulate_xau_trades(symbol: str, lookback_days: int = 90) -> XauBacktestRes
         stop_price = stop_loss
         exit_price = None
         exit_type = None
-        pnl = 0.0
 
-        for j in range(idx + 1, len(state)):
-            current = state.iloc[j]
+        for future_idx in range(idx + 1, len(history)):
+            future_state = compute_xau_macd_ema20(history.iloc[: future_idx + 1].copy())
+            current = future_state.iloc[-1]
             if side == "buy":
-                if current["low"] <= stop_price:
+                if float(current["low"]) <= stop_price:
                     exit_price = stop_price
                     exit_type = "stop"
                     break
-                if current["high"] >= take_profit:
+                if float(current["high"]) >= take_profit:
                     exit_price = take_profit
                     exit_type = "tp"
                     break
-                if current["close"] < current["ema20"]:
+                if float(current["close"]) < float(current["ema20"]):
                     exit_price = float(current["close"])
                     exit_type = "trend_break"
                     break
-                prior_hist = state["macd_hist"].iloc[j - 1]
-                if current["macd_hist"] < prior_hist:
+                prior_hist = float(future_state["macd_hist"].iloc[-2]) if len(future_state) >= 2 else float(current["macd_hist"])
+                if float(current["macd_hist"]) < prior_hist:
                     exit_price = float(current["close"])
                     exit_type = "momentum_loss"
                     break
             else:
-                if current["high"] >= stop_price:
+                if float(current["high"]) >= stop_price:
                     exit_price = stop_price
                     exit_type = "stop"
                     break
-                if current["low"] <= take_profit:
+                if float(current["low"]) <= take_profit:
                     exit_price = take_profit
                     exit_type = "tp"
                     break
-                if current["close"] > current["ema20"]:
+                if float(current["close"]) > float(current["ema20"]):
                     exit_price = float(current["close"])
                     exit_type = "trend_break"
                     break
-                prior_hist = state["macd_hist"].iloc[j - 1]
-                if current["macd_hist"] > prior_hist:
+                prior_hist = float(future_state["macd_hist"].iloc[-2]) if len(future_state) >= 2 else float(current["macd_hist"])
+                if float(current["macd_hist"]) > prior_hist:
                     exit_price = float(current["close"])
                     exit_type = "momentum_loss"
                     break
 
         if exit_price is None:
-            final = state.iloc[-1]
+            final = compute_xau_macd_ema20(history.iloc[-50:].copy()).iloc[-1]
             exit_price = float(final["close"])
             exit_type = "hold"
 

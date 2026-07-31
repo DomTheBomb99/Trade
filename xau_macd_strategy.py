@@ -12,9 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-import numpy as np
 import pandas as pd
 import yfinance as yf
+
+from risk_manager import RiskDecision
 
 
 @dataclass
@@ -192,6 +193,25 @@ def should_exit_xau_macd_position(
 def last_xau_ma20_macd_state(df: pd.DataFrame) -> pd.DataFrame:
     """Compute the required indicator state on a 15-minute XAU/USD dataframe."""
     return compute_xau_macd_ema20(df)
+
+
+def xau_decision_to_risk_decision(decision: XauMacdDecision) -> RiskDecision:
+    """Adapt the XAU MACD signal into the framework's `RiskDecision` schema."""
+    return RiskDecision(
+        approved=decision.approved,
+        symbol=decision.symbol,
+        side=decision.side,
+        entry_price=decision.entry_price,
+        stop_loss=decision.stop_loss,
+        take_profit=decision.take_profit,
+        trailing_stop_pct=0.015,
+        qty=decision.qty,
+        risk_dollars=decision.risk_amount,
+        reward_dollars=decision.reward_amount,
+        risk_reward_ratio=decision.risk_reward_ratio,
+        strategy=decision.strategy,
+        rationale=decision.rationale,
+    )
 
 
 # Example integration guidance:

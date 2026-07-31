@@ -9,10 +9,30 @@ from state import APP_STATE
 from trading import AlpacaTrader, create_trader
 from backtest import average_backtest_win_rate, run_backtest, summarize_backtest
 from xau_backtest import run_xau_backtest
+from xau_macd_strategy import build_xau_macd_decision, fetch_xau_m15_data, xau_decision_to_risk_decision
 
 
 def _log(agent: str, message: str, level: str = "info") -> None:
     APP_STATE.add_agent_log(agent, message, level)
+
+
+def _build_xau_live_decision(account) -> object | None:
+    """Generate the XAU/USD 15m MACD decision and convert it into the framework's decision schema."""
+    try:
+        df = fetch_xau_m15_data(symbol="XAUUSD=X", lookback="7d")
+        xau_decision = build_xau_macd_decision(
+            df,
+            account.equity,
+            account.buying_power,
+            risk_pct=0.015,
+            symbol="XAUUSD=X",
+        )
+        if xau_decision and xau_decision.approved:
+            _log("Technical Market Scanner", f"XAU/USD 15m signal approved: {xau_decision.rationale}")
+            return xau_decision_to_risk_decision(xau_decision)
+    except Exception as exc:
+        _log("Orchestrator", f"XAU 15m strategy check failed: {exc}", "warning")
+    return None
 
 
 def run_trading_cycle(watchlist: list[str] | None = None) -> str:
@@ -116,6 +136,11 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
 
         open_positions = trader.get_open_position_symbols()
         approved_decisions = run_deterministic_pipeline(symbols, account, open_positions)
+        xau_live_decision = _build_xau_live_decision(account)
+        if xau_live_decision is not None:
+            approved_decisions.append(xau_live_decision)
+            APP_STATE.set_active_strategy("XAU MACD 15m")
+            _log("Risk Manager", xau_live_decision.rationale)
         APP_STATE.set_decision_summaries(approved_decisions)
 
         backtest_results = run_backtest(symbols)
