@@ -621,6 +621,22 @@ def main() -> None:
         else:
             st.write("Backtest results will populate after the next scan.")
 
+    with st.expander("XAU/USD 15m MACD Live Strategy", expanded=True):
+        st.write(f"Execution status: **{snapshot.get('xau_execution_status', 'Idle')}**")
+        st.write(snapshot.get("xau_live_signal", "No live XAU signal summary yet."))
+
+        live_cols = st.columns(5)
+        with live_cols[0]:
+            st.metric("XAU Close", f"${snapshot.get('xau_price', 0.0):,.2f}")
+        with live_cols[1]:
+            st.metric("20 EMA", f"${snapshot.get('xau_ema20', 0.0):,.2f}")
+        with live_cols[2]:
+            st.metric("MACD", f"{snapshot.get('xau_macd', 0.0):,.4f}")
+        with live_cols[3]:
+            st.metric("Signal", f"{snapshot.get('xau_signal_line', 0.0):,.4f}")
+        with live_cols[4]:
+            st.metric("Histogram", f"{snapshot.get('xau_histogram', 0.0):,.4f}")
+
     with st.expander("XAU/USD 15m MACD Backtest", expanded=False):
         if snapshot.get("xau_backtest_summary"):
             st.text(snapshot["xau_backtest_summary"])

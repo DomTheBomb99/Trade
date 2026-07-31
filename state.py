@@ -92,6 +92,13 @@ class TradingState:
     last_scan_summary: str = ""
     backtest_summary: str = ""
     xau_backtest_summary: str = ""
+    xau_live_signal: str = ""
+    xau_execution_status: str = "Idle"
+    xau_price: float = 0.0
+    xau_ema20: float = 0.0
+    xau_macd: float = 0.0
+    xau_signal_line: float = 0.0
+    xau_histogram: float = 0.0
     decision_summaries: list[DecisionSummaryEntry] = field(default_factory=list)
     is_scanning: bool = False
     last_error: str = ""
@@ -155,6 +162,29 @@ class TradingState:
     def set_xau_backtest_summary(self, summary: str) -> None:
         with self._lock:
             self.xau_backtest_summary = summary
+
+    def set_xau_live_signal(self, signal: str) -> None:
+        with self._lock:
+            self.xau_live_signal = signal
+
+    def set_xau_execution_status(self, status: str) -> None:
+        with self._lock:
+            self.xau_execution_status = status
+
+    def set_xau_indicator_values(
+        self,
+        price: float,
+        ema20: float,
+        macd: float,
+        signal_line: float,
+        histogram: float,
+    ) -> None:
+        with self._lock:
+            self.xau_price = price
+            self.xau_ema20 = ema20
+            self.xau_macd = macd
+            self.xau_signal_line = signal_line
+            self.xau_histogram = histogram
 
     def set_active_mode(self, mode: str) -> None:
         with self._lock:
@@ -253,6 +283,13 @@ class TradingState:
                 "last_scan_summary": self.last_scan_summary,
                 "backtest_summary": self.backtest_summary,
                 "xau_backtest_summary": self.xau_backtest_summary,
+                "xau_live_signal": self.xau_live_signal,
+                "xau_execution_status": self.xau_execution_status,
+                "xau_price": self.xau_price,
+                "xau_ema20": self.xau_ema20,
+                "xau_macd": self.xau_macd,
+                "xau_signal_line": self.xau_signal_line,
+                "xau_histogram": self.xau_histogram,
                 "decision_summaries": [entry.to_dict() for entry in self.decision_summaries],
                 "is_scanning": self.is_scanning,
                 "last_error": self.last_error,

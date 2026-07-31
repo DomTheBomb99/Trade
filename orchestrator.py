@@ -28,6 +28,13 @@ def _build_xau_live_decision(account) -> object | None:
             symbol="XAUUSD=X",
         )
         if xau_decision and xau_decision.approved:
+            APP_STATE.set_xau_indicator_values(
+                price=xau_decision.entry_price,
+                ema20=xau_decision.ema20,
+                macd=xau_decision.macd,
+                signal_line=xau_decision.macd_signal,
+                histogram=xau_decision.macd_hist,
+            )
             _log("Technical Market Scanner", f"XAU/USD 15m signal approved: {xau_decision.rationale}")
             return xau_decision_to_risk_decision(xau_decision)
     except Exception as exc:
@@ -140,7 +147,13 @@ def run_trading_cycle(watchlist: list[str] | None = None) -> str:
         if xau_live_decision is not None:
             approved_decisions.append(xau_live_decision)
             APP_STATE.set_active_strategy("XAU MACD 15m")
+            APP_STATE.set_xau_execution_status("Signal Active")
+            APP_STATE.set_xau_live_signal(xau_live_decision.rationale)
             _log("Risk Manager", xau_live_decision.rationale)
+        else:
+            APP_STATE.set_xau_execution_status("No Signal")
+            APP_STATE.set_xau_live_signal("No XAU/USD 15m MACD trigger available in the current data window.")
+            APP_STATE.set_xau_indicator_values(0.0, 0.0, 0.0, 0.0, 0.0)
         APP_STATE.set_decision_summaries(approved_decisions)
 
         backtest_results = run_backtest(symbols)
