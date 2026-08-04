@@ -3,6 +3,8 @@ set -eu
 
 PORT="${PORT:-10000}"
 
+python worker.py > /tmp/autotrader-worker.log 2>&1 &
+
 exec streamlit run app.py \
   --server.port="${PORT}" \
   --server.address=0.0.0.0 \

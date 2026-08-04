@@ -64,16 +64,16 @@ LEVEL_ICONS = {
     "error": "❌",
 }
 
+_SCAN_LOCK = threading.Lock()
+_SCAN_THREAD: threading.Thread | None = None
+_SCAN_STOP_EVENT: threading.Event | None = None
+
 
 def _init_session() -> None:
     if "watchlist_text" not in st.session_state:
         st.session_state.watchlist_text = ", ".join(DEFAULT_WATCHLIST)
     if "auto_scan" not in st.session_state:
         st.session_state.auto_scan = DEFAULT_AUTO_SCAN
-    if "scan_thread" not in st.session_state:
-        st.session_state.scan_thread = None
-    if "stop_event" not in st.session_state:
-        st.session_state.stop_event = threading.Event()
 
 
 def _parse_watchlist(text: str) -> list[str]:
@@ -83,7 +83,8 @@ def _parse_watchlist(text: str) -> list[str]:
 def _background_scan_loop(watchlist: list[str], stop_event: threading.Event) -> None:
     while not stop_event.is_set():
         try:
-            run_trading_cycle(watchlist)
+            current_watchlist = APP_STATE.get_watchlist() or watchlist
+            run_trading_cycle(current_watchlist)
             sync_alpaca_trade_log()
         except Exception as exc:  # pragma: no cover
             APP_STATE.add_agent_log(
@@ -97,34 +98,47 @@ def _background_scan_loop(watchlist: list[str], stop_event: threading.Event) -> 
             time.sleep(1)
 
 
+def _is_auto_scan_running() -> bool:
+    return _SCAN_THREAD is not None and _SCAN_THREAD.is_alive() and _SCAN_STOP_EVENT is not None and not _SCAN_STOP_EVENT.is_set()
+
+
 def _start_auto_scan(watchlist: list[str]) -> None:
-    stop_event: threading.Event = st.session_state.stop_event
-    stop_event.set()
-    if st.session_state.scan_thread and st.session_state.scan_thread.is_alive():
-        st.session_state.scan_thread.join(timeout=2)
-    stop_event.clear()
-    thread = threading.Thread(
-        target=_background_scan_loop,
-        args=(watchlist, stop_event),
-        daemon=True,
-    )
-    st.session_state.scan_thread = thread
-    thread.start()
+    global _SCAN_THREAD, _SCAN_STOP_EVENT
+
+    with _SCAN_LOCK:
+        if _SCAN_THREAD and _SCAN_THREAD.is_alive():
+            return
+
+        if _SCAN_STOP_EVENT is not None:
+            _SCAN_STOP_EVENT.set()
+            if _SCAN_THREAD is not None:
+                _SCAN_THREAD.join(timeout=2)
+
+        _SCAN_STOP_EVENT = threading.Event()
+        _SCAN_THREAD = threading.Thread(
+            target=_background_scan_loop,
+            args=(watchlist, _SCAN_STOP_EVENT),
+            daemon=True,
+            name="auto-scan-worker",
+        )
+        _SCAN_THREAD.start()
 
 
 def _ensure_auto_scan_running(watchlist: list[str]) -> None:
     if not st.session_state.auto_scan:
         return
-    scan_thread = st.session_state.scan_thread
-    stop_event: threading.Event = st.session_state.stop_event
-    if scan_thread is None or not scan_thread.is_alive() or stop_event.is_set():
+    if not _is_auto_scan_running():
         _log = APP_STATE.add_agent_log
         _log("Orchestrator", "Auto-scan restart requested by health monitor.", "warning")
         _start_auto_scan(watchlist)
 
 
 def _stop_auto_scan() -> None:
-    st.session_state.stop_event.set()
+    global _SCAN_STOP_EVENT
+
+    if _SCAN_STOP_EVENT is None:
+        return
+    _SCAN_STOP_EVENT.set()
 
 
 def _render_agent_logs(logs: list) -> None:
@@ -566,11 +580,7 @@ def main() -> None:
         scanning = "Scanning..." if snapshot["is_scanning"] else "Idle"
         st.metric("Engine Status", scanning)
     with status_col3:
-        health = (
-            "Healthy"
-            if st.session_state.scan_thread and st.session_state.scan_thread.is_alive()
-            else "Stopped"
-        )
+        health = "Healthy" if _is_auto_scan_running() else "Stopped"
         st.metric("Auto-scan Health", health)
     with status_col4:
         trade_summary = _summarize_trade_performance(snapshot["trade_logs"])
